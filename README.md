@@ -156,3 +156,37 @@ Use Rindaman from GitHub exactly like your strict-mode setup:
 ```
 
 Do not load `strict-mode` separately if `rindaman` is enabled, because Rindaman already includes strict response behavior.
+
+## Install in OpenCode
+
+Add Rindaman to your OpenCode config `plugin` list using the GitHub URL:
+
+```json
+{
+  "plugin": [
+    "superpowers@git+https://github.com/obra/superpowers.git",
+    "rindaman@git+https://github.com/mahdyarief/rindaman.git"
+  ]
+}
+```
+
+Then restart OpenCode so it resolves and loads the plugin.
+
+Recommended setup:
+
+- Use `rindaman` instead of loading `strict-mode` separately.
+- Keep `superpowers` if you already use it.
+- Do not add the old `quality-check` skill separately; Rindaman includes the quality lifecycle.
+
+After restart, test with:
+
+```text
+/rindaman on
+/rindaman off
+/rindaman on
+```
+
+You can also verify the plugin tools are available in OpenCode:
+
+- `rindaman_check`
+- `rindaman_status`
