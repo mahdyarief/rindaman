@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "typecheck": "node -e \"process.exit(1)\""
+  },
+  "rindaman": {
+    "checks": {
+      "semantic": false,
+      "syntax": false,
+      "hygiene": false
+    }
+  }
+}

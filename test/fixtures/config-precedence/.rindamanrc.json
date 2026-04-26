@@ -1,0 +1,11 @@
+{
+  "changedOnly": true,
+  "strictWarnings": false,
+  "reportPath": ".rindaman/from-file.md",
+  "ignorePatterns": ["file-ignore/**"],
+  "checks": {
+    "types": false,
+    "syntax": false,
+    "hygiene": false
+  }
+}

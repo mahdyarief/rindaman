@@ -1,0 +1,9 @@
+{
+  "rindaman": {
+    "checks": {
+      "semantic": false,
+      "types": false,
+      "hygiene": false
+    }
+  }
+}

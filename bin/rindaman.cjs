@@ -66,7 +66,10 @@ function findProjectRoot(startDirectory) {
   let currentDirectory = startDirectory;
 
   while (currentDirectory) {
-    if (fs.existsSync(path.join(currentDirectory, "package.json"))) {
+    if (
+      fs.existsSync(path.join(currentDirectory, "package.json")) ||
+      fs.existsSync(path.join(currentDirectory, ".git"))
+    ) {
       return currentDirectory;
     }
 
@@ -185,10 +188,13 @@ function getWindowsCommandName(commandName) {
 function executeCommand(commandName, args, options = {}) {
   const startTime = Date.now();
   const finalCommandName = getWindowsCommandName(commandName);
+  const needsWindowsShell =
+    process.platform === "win32" && finalCommandName.endsWith(".cmd");
   let result = spawnSync(finalCommandName, args, {
     cwd: options.cwd ?? process.cwd(),
     encoding: "utf8",
     stdio: options.inherit ? "inherit" : "pipe",
+    shell: needsWindowsShell,
     env: {
       ...process.env,
       ...(options.env ?? {}),
