@@ -10,7 +10,7 @@ Use this plugin as the single OpenCode quality layer.
 It replaces separate use of:
 
 - strict-mode
-- opencode-quality-check
+- quality-check
 - implement-clean
 - code-quality-check
 - no_ai_slop

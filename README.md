@@ -5,7 +5,7 @@ OpenCode plugin that merges strict response mode with lifecycle code quality man
 Rindaman combines:
 
 - `strict-mode`: concise, direct, low-filler responses
-- `opencode-quality-check`: clean implementation lifecycle plus verification checks
+- `quality-check`: clean implementation lifecycle plus verification checks
 
 ## Lifecycle
 
