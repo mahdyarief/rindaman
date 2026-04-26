@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -111,6 +111,9 @@ test("CLI check supports fixture-backed JSON output", () => {
     existingChecks: [],
     unknownChecks: [],
   });
+  assert.equal(output.baseline.found, false);
+  assert.equal(output.baseline.used, false);
+  assert.deepEqual(output.baseline.checkNames, []);
   assert.deepEqual(
     output.checks.map((check) => check.status),
     ["skipped", "skipped", "skipped", "skipped"],
@@ -164,6 +167,181 @@ test("CLI check reports formatter failures", () => {
   assert.equal(output.formatter, "prettier");
   assert.equal(syntaxCheck.status, "failed");
   assert.equal(syntaxCheck.exitCode, 1);
+});
+
+test("CLI baseline writes failed check names", () => {
+  const baselinePath = resolve(
+    tmpdir(),
+    "rindaman-baseline-command-fixture",
+    ".rindaman",
+    "baseline.json",
+  );
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-baseline-command-fixture",
+    {
+      scripts: {
+        typecheck: "node -e \"process.exit(1)\"",
+      },
+      rindaman: {
+        checks: {
+          semantic: false,
+          syntax: false,
+          hygiene: false,
+        },
+      },
+    },
+  );
+  const result = runCli(["baseline", "--json"], fixtureDirectory);
+
+  assert.equal(result.status, 0);
+  const output = parseJsonOutput(result);
+  const baselineFile = JSON.parse(readFileSync(baselinePath, "utf8"));
+
+  assert.equal(output.command, "baseline");
+  assert.equal(output.status, "passed");
+  assert.deepEqual(output.baseline.checkNames, ["types"]);
+  assert.equal(baselineFile.version, 1);
+  assert.deepEqual(baselineFile.checks, ["types"]);
+});
+
+test("CLI check classifies baseline failures as existing", () => {
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-existing-baseline-fixture",
+    {
+      scripts: {
+        typecheck: "node -e \"process.exit(1)\"",
+      },
+      rindaman: {
+        checks: {
+          semantic: false,
+          syntax: false,
+          hygiene: false,
+        },
+      },
+    },
+  );
+  mkdirSync(resolve(fixtureDirectory, ".rindaman"), { recursive: true });
+  writeFileSync(
+    resolve(fixtureDirectory, ".rindaman", "baseline.json"),
+    `${JSON.stringify(
+      { version: 1, createdAt: "2026-04-26T00:00:00.000Z", checks: ["types"] },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const result = runCli(["check", "--json", "--all"], fixtureDirectory);
+
+  assert.equal(result.status, 0);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.debt.classification, "existing");
+  assert.deepEqual(output.debt.existingChecks, ["types"]);
+  assert.deepEqual(output.debt.unknownChecks, []);
+});
+
+test("CLI check can fail existing baseline debt", () => {
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-fail-existing-baseline-fixture",
+    {
+      scripts: {
+        typecheck: "node -e \"process.exit(1)\"",
+      },
+      rindaman: {
+        checks: {
+          semantic: false,
+          syntax: false,
+          hygiene: false,
+        },
+      },
+    },
+  );
+  mkdirSync(resolve(fixtureDirectory, ".rindaman"), { recursive: true });
+  writeFileSync(
+    resolve(fixtureDirectory, ".rindaman", "baseline.json"),
+    `${JSON.stringify(
+      { version: 1, createdAt: "2026-04-26T00:00:00.000Z", checks: ["types"] },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const result = runCli(
+    ["check", "--json", "--all", "--fail-existing"],
+    fixtureDirectory,
+  );
+
+  assert.equal(result.status, 1);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.status, "failed");
+  assert.deepEqual(output.debt.existingChecks, ["types"]);
+});
+
+test("CLI check can ignore an existing baseline", () => {
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-no-baseline-fixture",
+    {
+      scripts: {
+        typecheck: "node -e \"process.exit(1)\"",
+      },
+      rindaman: {
+        checks: {
+          semantic: false,
+          syntax: false,
+          hygiene: false,
+        },
+      },
+    },
+  );
+  mkdirSync(resolve(fixtureDirectory, ".rindaman"), { recursive: true });
+  writeFileSync(
+    resolve(fixtureDirectory, ".rindaman", "baseline.json"),
+    `${JSON.stringify(
+      { version: 1, createdAt: "2026-04-26T00:00:00.000Z", checks: ["types"] },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const result = runCli(
+    ["check", "--json", "--all", "--no-baseline"],
+    fixtureDirectory,
+  );
+
+  assert.equal(result.status, 1);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.baseline.found, true);
+  assert.equal(output.baseline.used, false);
+  assert.deepEqual(output.debt.unknownChecks, ["types"]);
+});
+
+test("CLI check ignores invalid baseline JSON", () => {
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-invalid-baseline-fixture",
+    {
+      rindaman: {
+        checks: {
+          semantic: false,
+          types: false,
+          syntax: false,
+          hygiene: false,
+        },
+      },
+    },
+  );
+  mkdirSync(resolve(fixtureDirectory, ".rindaman"), { recursive: true });
+  writeFileSync(resolve(fixtureDirectory, ".rindaman", "baseline.json"), "not json\n");
+
+  const result = runCli(["check", "--json"], fixtureDirectory);
+
+  assert.equal(result.status, 0);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.baseline.found, true);
+  assert.equal(output.baseline.used, false);
+  assert.deepEqual(output.baseline.checkNames, []);
 });
 
 test("CLI audit reports unknown debt without failing", () => {

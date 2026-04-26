@@ -16,7 +16,7 @@ const RED = "\x1b[31m";
 const BLUE = "\x1b[36m";
 const RESET = "\x1b[0m";
 
-const KNOWN_COMMANDS = new Set(["check", "audit", "doctor", "help"]);
+const KNOWN_COMMANDS = new Set(["check", "audit", "baseline", "doctor", "help"]);
 const rawArgs = process.argv.slice(2);
 const firstArg = rawArgs[0];
 const command = firstArg && KNOWN_COMMANDS.has(firstArg) ? firstArg : "check";
@@ -117,6 +117,8 @@ function createDefaultConfig() {
     baseRef: undefined,
     debtMode: "changed-only",
     failOnExistingDebt: false,
+    baselinePath: ".rindaman/baseline.json",
+    useBaseline: true,
     ignorePatterns: ["dist/**", "coverage/**", "node_modules/**", ".git/**"],
     checks: {
       semantic: true,
@@ -174,6 +176,8 @@ function applyFlagOverrides(config) {
     failOnExistingDebt: flags.has("--fail-existing")
       ? true
       : config.failOnExistingDebt,
+    baselinePath: readFlagValue("--baseline-path") ?? config.baselinePath,
+    useBaseline: flags.has("--no-baseline") ? false : config.useBaseline,
   };
 }
 
@@ -405,7 +409,12 @@ function getChangedFiles(projectRoot, baseRef) {
 }
 
 function getExplicitTargetFiles(projectRoot) {
-  const flagsWithValues = new Set(["--base", "--report-path", "--debt-mode"]);
+  const flagsWithValues = new Set([
+    "--base",
+    "--report-path",
+    "--debt-mode",
+    "--baseline-path",
+  ]);
   const explicitTargetFiles = [];
 
   for (let argumentIndex = 0; argumentIndex < commandArgs.length; argumentIndex += 1) {
@@ -530,7 +539,50 @@ function createCheckResult(name, checkResult) {
   };
 }
 
-function createDebtResult(config, changedOnly, targetFiles, checks) {
+function readBaselineFile(projectRoot, config) {
+  const baselinePath = path.resolve(projectRoot, config.baselinePath);
+
+  if (!config.useBaseline) {
+    return {
+      path: baselinePath,
+      found: fs.existsSync(baselinePath),
+      used: false,
+      checkNames: [],
+    };
+  }
+
+  if (!fs.existsSync(baselinePath)) {
+    return {
+      path: baselinePath,
+      found: false,
+      used: false,
+      checkNames: [],
+    };
+  }
+
+  try {
+    const baselineFile = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
+    const checkNames = Array.isArray(baselineFile.checks)
+      ? baselineFile.checks.filter((checkName) => typeof checkName === "string")
+      : [];
+
+    return {
+      path: baselinePath,
+      found: true,
+      used: baselineFile.version === 1,
+      checkNames: baselineFile.version === 1 ? checkNames : [],
+    };
+  } catch (_error) {
+    return {
+      path: baselinePath,
+      found: true,
+      used: false,
+      checkNames: [],
+    };
+  }
+}
+
+function createDebtResult(config, changedOnly, targetFiles, checks, baseline) {
   const failedChecks = checks.filter((check) => check.status === "failed");
   const debtResult = {
     mode: config.debtMode,
@@ -544,20 +596,34 @@ function createDebtResult(config, changedOnly, targetFiles, checks) {
     return debtResult;
   }
 
+  const baselineCheckNames = new Set(baseline.used ? baseline.checkNames : []);
   const failedCheckNames = failedChecks.map((check) => check.name);
+  const existingCheckNames = failedCheckNames.filter((checkName) =>
+    baselineCheckNames.has(checkName),
+  );
+  const unclassifiedCheckNames = failedCheckNames.filter(
+    (checkName) => !baselineCheckNames.has(checkName),
+  );
+
+  debtResult.existingChecks = existingCheckNames;
+
+  if (unclassifiedCheckNames.length === 0) {
+    debtResult.classification = "existing";
+    return debtResult;
+  }
 
   if (
     config.debtMode === "changed-only" &&
     changedOnly &&
     targetFiles.length > 0
   ) {
-    debtResult.introducedChecks = failedCheckNames;
-    debtResult.classification = "introduced";
+    debtResult.introducedChecks = unclassifiedCheckNames;
+    debtResult.classification = existingCheckNames.length > 0 ? "mixed" : "introduced";
     return debtResult;
   }
 
-  debtResult.unknownChecks = failedCheckNames;
-  debtResult.classification = "unknown";
+  debtResult.unknownChecks = unclassifiedCheckNames;
+  debtResult.classification = existingCheckNames.length > 0 ? "mixed" : "unknown";
   return debtResult;
 }
 
@@ -643,11 +709,14 @@ function runHygieneCheck(projectRoot, inherit) {
   return executeLocalBinary(projectRoot, "knip", [], inherit);
 }
 
-function getOverallStatus(checks, config) {
-  const hasFailedCheck = checks.some((check) => check.status === "failed");
+function getOverallStatus(checks, config, debt) {
+  const hasBlockingDebt =
+    debt.introducedChecks.length > 0 ||
+    debt.unknownChecks.length > 0 ||
+    (config.failOnExistingDebt && debt.existingChecks.length > 0);
   const hasSkippedCheck = checks.some((check) => check.status === "skipped");
 
-  if (hasFailedCheck) {
+  if (hasBlockingDebt) {
     return "failed";
   }
 
@@ -697,9 +766,33 @@ function printHumanSummary(result) {
   }
 }
 
-function runCheckCommand(auditMode) {
-  const projectRoot = findProjectRoot(process.cwd());
-  const config = applyFlagOverrides(readConfig(projectRoot));
+function getFailedCheckNames(checks) {
+  return checks
+    .filter((check) => check.status === "failed")
+    .map((check) => check.name);
+}
+
+function writeBaselineFile(projectRoot, config, checkNames) {
+  const baselinePath = path.resolve(projectRoot, config.baselinePath);
+  const baselineDirectory = path.dirname(baselinePath);
+  const baselineFile = {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    checks: checkNames,
+  };
+
+  fs.mkdirSync(baselineDirectory, { recursive: true });
+  fs.writeFileSync(baselinePath, `${JSON.stringify(baselineFile, null, 2)}\n`);
+
+  return {
+    path: baselinePath,
+    found: true,
+    used: true,
+    checkNames,
+  };
+}
+
+function createCheckCommandResult(auditMode, projectRoot, config) {
   const packageManager = detectPackageManager(projectRoot);
   const baseRef = detectBaseRef(projectRoot, config);
   const explicitTargetFiles = getExplicitTargetFiles(projectRoot);
@@ -717,12 +810,6 @@ function runCheckCommand(auditMode) {
     : [];
   const inheritOutput = !jsonOutput;
   const formatter = detectFormatter(projectRoot);
-
-  printSection(auditMode ? "Rindaman Audit" : "Rindaman Check");
-  print(`[Rindaman] Project root: ${projectRoot}`);
-  print(`[Rindaman] Package manager: ${packageManager}`);
-  print(`[Rindaman] Base ref: ${baseRef}`);
-  print(`[Rindaman] Changed files: ${changedFiles.length}`);
 
   const checks = [];
 
@@ -773,9 +860,17 @@ function runCheckCommand(auditMode) {
     checks.push(createSkippedCheck("hygiene", "Disabled by config", "info"));
   }
 
-  const debt = createDebtResult(config, config.changedOnly, targetFiles, checks);
-  const status = getOverallStatus(checks, config);
-  const result = {
+  const baseline = readBaselineFile(projectRoot, config);
+  const debt = createDebtResult(
+    config,
+    config.changedOnly,
+    targetFiles,
+    checks,
+    baseline,
+  );
+  const status = getOverallStatus(checks, config, debt);
+
+  return {
     command: auditMode ? "audit" : "check",
     status: auditMode && status === "failed" ? "audit_failed" : status,
     projectRoot,
@@ -789,6 +884,7 @@ function runCheckCommand(auditMode) {
       ? path.resolve(projectRoot, config.reportPath)
       : null,
     checks,
+    baseline,
     debt,
     policy: {
       strictWarnings: config.strictWarnings,
@@ -796,9 +892,23 @@ function runCheckCommand(auditMode) {
       writeReport: config.writeReport,
       debtMode: config.debtMode,
       failOnExistingDebt: config.failOnExistingDebt,
+      baselinePath: config.baselinePath,
+      useBaseline: config.useBaseline,
       ignorePatterns: config.ignorePatterns,
     },
   };
+}
+
+function runCheckCommand(auditMode) {
+  const projectRoot = findProjectRoot(process.cwd());
+  const config = applyFlagOverrides(readConfig(projectRoot));
+  const result = createCheckCommandResult(auditMode, projectRoot, config);
+
+  printSection(auditMode ? "Rindaman Audit" : "Rindaman Check");
+  print(`[Rindaman] Project root: ${result.projectRoot}`);
+  print(`[Rindaman] Package manager: ${result.packageManager}`);
+  print(`[Rindaman] Base ref: ${result.baseRef}`);
+  print(`[Rindaman] Changed files: ${result.changedFiles.length}`);
 
   if (jsonOutput) {
     writeJsonResult(result);
@@ -806,7 +916,35 @@ function runCheckCommand(auditMode) {
     printHumanSummary(result);
   }
 
-  process.exit(getExitCodeForStatus(status, auditMode));
+  process.exit(getExitCodeForStatus(result.status, auditMode));
+}
+
+function runBaselineCommand() {
+  const projectRoot = findProjectRoot(process.cwd());
+  const config = applyFlagOverrides(readConfig(projectRoot));
+  const checkResult = createCheckCommandResult(true, projectRoot, config);
+  const baseline = writeBaselineFile(
+    projectRoot,
+    config,
+    getFailedCheckNames(checkResult.checks),
+  );
+  const result = {
+    command: "baseline",
+    status: "passed",
+    projectRoot,
+    baseline,
+    checks: checkResult.checks,
+  };
+
+  if (jsonOutput) {
+    writeJsonResult(result);
+  } else {
+    printSection("Rindaman Baseline");
+    console.log(`[Rindaman] Baseline: ${baseline.path}`);
+    console.log(`[Rindaman] Checks: ${baseline.checkNames.join(", ") || "none"}`);
+  }
+
+  process.exit(EXIT_OK);
 }
 
 function runDoctorCommand() {
@@ -908,6 +1046,7 @@ function printHelp() {
       "Usage:",
       "  rindaman check [--json] [--include-output] [--strict] [--changed-only] [--all] [--report]",
       "  rindaman audit [--json] [--include-output]",
+      "  rindaman baseline [--json]",
       "  rindaman doctor [--json]",
       "  rindaman help",
       "",
@@ -922,6 +1061,8 @@ function printHelp() {
       "  --report-path <p>  Write report to a custom path when --report is enabled",
       "  --debt-mode <mode> Classify debt with changed-only or all mode",
       "  --fail-existing    Treat existing debt as blocking",
+      "  --baseline-path <p> Read or write a custom baseline file path",
+      "  --no-baseline      Ignore an existing baseline file",
       "",
       "Exit codes:",
       `  ${EXIT_OK} passed or audit completed`,
@@ -945,6 +1086,10 @@ try {
 
   if (command === "audit") {
     runCheckCommand(true);
+  }
+
+  if (command === "baseline") {
+    runBaselineCommand();
   }
 
   if (command === "doctor") {

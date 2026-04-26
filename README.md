@@ -76,6 +76,8 @@ rindaman check
 rindaman check --json
 rindaman audit
 rindaman audit --json
+rindaman baseline
+rindaman baseline --json
 rindaman doctor
 rindaman doctor --json
 rindaman --help
@@ -104,6 +106,7 @@ The JSON result includes:
 - `formatter`
 - `reportPath`
 - `checks`
+- `baseline`
 - `debt`
 - `policy`
 
@@ -128,10 +131,16 @@ rindaman check --json --include-output
 Rindaman reports failed checks in a `debt` object:
 
 - `introducedChecks` - failures tied to changed target files
-- `existingChecks` - reserved for baseline-aware classification
+- `existingChecks` - failures listed in the current baseline
 - `unknownChecks` - failures that cannot be safely tied to changed files
 
 By default, `check` blocks introduced and unknown debt. `audit` reports the same classification but exits successfully.
+
+### Baseline files
+
+Use `rindaman baseline --json` to record the current failed check names in `.rindaman/baseline.json`.
+
+When baseline use is enabled, failed checks listed in the baseline are classified as existing debt. Existing debt does not block by default; pass `--fail-existing` to block it.
 
 ## Safety policy
 
@@ -197,6 +206,8 @@ Rindaman reads project-level configuration from either:
   "baseRef": "origin/main",
   "debtMode": "changed-only",
   "failOnExistingDebt": false,
+  "baselinePath": ".rindaman/baseline.json",
+  "useBaseline": true,
   "ignorePatterns": [
     "dist/**",
     "coverage/**",
@@ -221,6 +232,8 @@ Rindaman reads project-level configuration from either:
     "strictWarnings": false,
     "debtMode": "changed-only",
     "failOnExistingDebt": false,
+    "baselinePath": ".rindaman/baseline.json",
+    "useBaseline": true,
     "checks": {
       "semantic": true,
       "types": true,
@@ -238,6 +251,8 @@ rindaman check --json --strict --base origin/main
 rindaman check --all --report --report-path .rindaman/report.md
 rindaman check --json --debt-mode changed-only
 rindaman check --json --fail-existing
+rindaman check --json --baseline-path .rindaman/baseline.json
+rindaman check --json --no-baseline
 ```
 
 ## GitHub-only usage
