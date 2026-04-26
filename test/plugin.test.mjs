@@ -32,6 +32,14 @@ const runTransform = async (messages) => {
   return output.messages;
 };
 
+const createToolContext = (overrides = {}) => ({
+  sessionID: overrides.sessionID ?? `session-${Date.now()}-${Math.random()}`,
+  directory: overrides.directory ?? process.cwd(),
+});
+
+const readStatus = async (hooks, context) =>
+  JSON.parse(await hooks.tool.rindaman_status.execute({}, context));
+
 const getRindamanRuleMessages = (messages) =>
   messages.filter(
     (message) =>
@@ -140,4 +148,87 @@ test("exposes Rindaman quality tools", async () => {
 
   assert.equal(typeof hooks.tool?.rindaman_check?.execute, "function");
   assert.equal(typeof hooks.tool?.rindaman_status?.execute, "function");
+});
+
+test("rindaman_status exposes final response gate metadata", async () => {
+  const hooks = await server();
+  const context = createToolContext();
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.lastCheck.status, "not_run");
+  assert.equal(status.lastCheck.command, null);
+  assert.equal(status.lastCheck.checkedAt, null);
+  assert.equal(typeof status.finalResponse.allowed, "boolean");
+  assert.equal(typeof status.finalResponse.reason, "string");
+});
+
+test("dirty session requires verification before final response", async () => {
+  const hooks = await server();
+  const context = createToolContext();
+
+  await hooks["tool.execute.after"](
+    { sessionID: context.sessionID, tool: "edit" },
+    { output: "src/example.ts" },
+  );
+
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.verificationRequired, true);
+  assert.equal(status.finalResponse.allowed, false);
+  assert.equal(status.finalResponse.reason, "verification pending");
+  assert.ok(status.changedFiles.length > 0);
+});
+
+test("errored rindaman_check keeps final response blocked", async () => {
+  const hooks = await server();
+  const context = createToolContext({ directory: "/path/that/does/not/exist" });
+
+  await hooks["tool.execute.after"](
+    { sessionID: context.sessionID, tool: "edit" },
+    { output: "src/example.ts" },
+  );
+  await hooks.tool.rindaman_check.execute(
+    { mode: "check", json: true, strict: false, report: false },
+    context,
+  );
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.lastCheck.status, "error");
+  assert.equal(status.finalResponse.allowed, false);
+  assert.equal(status.finalResponse.reason, "verification errored");
+});
+
+test("passing rindaman_check allows final response", async () => {
+  const hooks = await server();
+  const context = createToolContext();
+
+  await hooks["tool.execute.after"](
+    { sessionID: context.sessionID, tool: "edit" },
+    { output: "README.md" },
+  );
+  await hooks.tool.rindaman_check.execute(
+    { mode: "doctor", json: true, strict: false, report: false },
+    context,
+  );
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.lastCheck.status, "passed");
+  assert.equal(status.finalResponse.allowed, true);
+  assert.equal(status.finalResponse.reason, "verification passed");
+});
+
+test("quality lifecycle disabled allows final response", async () => {
+  const hooks = await server({}, { qualityLifecycle: false });
+  const context = createToolContext();
+
+  await hooks["tool.execute.after"](
+    { sessionID: context.sessionID, tool: "edit" },
+    { output: "src/example.ts" },
+  );
+
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.verificationRequired, true);
+  assert.equal(status.finalResponse.allowed, true);
+  assert.equal(status.finalResponse.reason, "quality lifecycle disabled");
 });

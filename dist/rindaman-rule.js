@@ -47,4 +47,6 @@ Final response:
 - Summarize changed files.
 - List verification commands run and results.
 - List remaining risks or skipped checks.
+- If verification is required and no passing rindaman_check exists, explicitly state verification is pending or failed.
+- Do not imply completion when rindaman_status.finalResponse.allowed is false.
 `.trim();

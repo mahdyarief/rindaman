@@ -42,6 +42,28 @@ const getSessionState = (sessionID) => {
     sessionStates.set(sessionID, initialState);
     return initialState;
 };
+const isVerificationRequired = (resolvedOptions, sessionState) => resolvedOptions.verificationRequired && sessionState.changedFiles.length > 0;
+const createFinalResponseGate = (resolvedOptions, sessionState) => {
+    if (!resolvedOptions.enabled) {
+        return { allowed: true, reason: "rindaman disabled" };
+    }
+    if (!resolvedOptions.qualityLifecycle) {
+        return { allowed: true, reason: "quality lifecycle disabled" };
+    }
+    if (!isVerificationRequired(resolvedOptions, sessionState)) {
+        return { allowed: true, reason: "verification not required" };
+    }
+    if (sessionState.lastCheckStatus === "passed") {
+        return { allowed: true, reason: "verification passed" };
+    }
+    if (sessionState.lastCheckStatus === "failed") {
+        return { allowed: false, reason: "verification failed" };
+    }
+    if (sessionState.lastCheckStatus === "error") {
+        return { allowed: false, reason: "verification errored" };
+    }
+    return { allowed: false, reason: "verification pending" };
+};
 const isRindamanRuleMessage = (message) => message.parts.some((part) => part.type === "text" &&
     typeof part.text === "string" &&
     part.text.includes(RINDAMAN_RULE_MARKER));
@@ -147,17 +169,32 @@ const createRindamanCheckTool = () => tool({
             encoding: "utf8",
         });
         const sessionState = getSessionState(context.sessionID);
-        sessionState.changedFiles = readChangedFiles(context.directory);
+        const changedFiles = readChangedFiles(context.directory);
+        if (changedFiles.length > 0) {
+            sessionState.changedFiles = changedFiles;
+        }
         sessionState.lastCheckAt = new Date().toISOString();
         sessionState.lastCheckCommand = ["node", ...commandArgs].join(" ");
         sessionState.lastCheckExitCode = result.status;
-        sessionState.lastCheckStatus = result.status === 0 ? "passed" : "failed";
+        sessionState.lastCheckStatus = result.error
+            ? "error"
+            : result.status === 0
+                ? "passed"
+                : "failed";
+        const finalResponse = createFinalResponseGate({
+            enabled: true,
+            strictResponses: true,
+            qualityLifecycle: true,
+            verificationRequired: true,
+        }, sessionState);
         return [
             result.stdout,
             result.stderr,
             "",
             "Rindaman status: " + sessionState.lastCheckStatus,
             "Exit code: " + String(result.status),
+            "Final response allowed: " + String(finalResponse.allowed),
+            "Final response reason: " + finalResponse.reason,
         ]
             .filter(Boolean)
             .join("\n");
@@ -168,17 +205,25 @@ const createRindamanStatusTool = (resolvedOptions) => tool({
     args: {},
     async execute(_args, context) {
         const sessionState = getSessionState(context.sessionID);
-        sessionState.changedFiles = readChangedFiles(context.directory);
+        const changedFiles = readChangedFiles(context.directory);
+        if (changedFiles.length > 0) {
+            sessionState.changedFiles = changedFiles;
+        }
+        const verificationRequired = isVerificationRequired(resolvedOptions, sessionState);
+        const finalResponse = createFinalResponseGate(resolvedOptions, sessionState);
         return JSON.stringify({
             enabled: resolvedOptions.enabled,
             strictResponses: resolvedOptions.strictResponses,
             qualityLifecycle: resolvedOptions.qualityLifecycle,
-            verificationRequired: resolvedOptions.verificationRequired && sessionState.changedFiles.length > 0,
+            verificationRequired,
             changedFiles: sessionState.changedFiles,
-            lastCheckAt: sessionState.lastCheckAt ?? null,
-            lastCheckStatus: sessionState.lastCheckStatus ?? "not_run",
-            lastCheckCommand: sessionState.lastCheckCommand ?? null,
-            lastCheckExitCode: sessionState.lastCheckExitCode ?? null,
+            lastCheck: {
+                status: sessionState.lastCheckStatus ?? "not_run",
+                command: sessionState.lastCheckCommand ?? null,
+                checkedAt: sessionState.lastCheckAt ?? null,
+                exitCode: sessionState.lastCheckExitCode ?? null,
+            },
+            finalResponse,
         }, null, 2);
     },
 });

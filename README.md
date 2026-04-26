@@ -67,6 +67,8 @@ Rindaman now includes first-class OpenCode tools:
 - `rindaman_check` — runs the verification command and records session check status.
 - `rindaman_status` — reports changed files, verification requirement, and last check state.
 
+`rindaman_status` includes `finalResponse.allowed` and `finalResponse.reason` so the assistant can avoid false completion claims when verification is pending or failed.
+
 The plugin injects rules with `experimental.chat.system.transform` and keeps compatibility with message-history injection for OpenCode setups that still rely on message transforms.
 
 ## CLI commands
