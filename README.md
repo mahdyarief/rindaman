@@ -78,6 +78,9 @@ rindaman audit
 rindaman audit --json
 rindaman baseline
 rindaman baseline --json
+rindaman check --workspace packages/api --json
+rindaman check --workspaces --json
+rindaman baseline --workspaces --json
 rindaman doctor
 rindaman doctor --json
 rindaman --help
@@ -141,6 +144,12 @@ By default, `check` blocks introduced and unknown debt. `audit` reports the same
 Use `rindaman baseline --json` to record the current failed check names in `.rindaman/baseline.json`.
 
 When baseline use is enabled, failed checks listed in the baseline are classified as existing debt. Existing debt does not block by default; pass `--fail-existing` to block it.
+
+### Monorepo workspaces
+
+Use `--workspace <name-or-path>` to run against one workspace, or `--workspaces` to run every detected workspace.
+
+Rindaman detects workspaces from root `package.json` workspaces and `pnpm-workspace.yaml`. Workspace runs use workspace-local scripts, config, and baselines, with root config as the fallback.
 
 ## Safety policy
 
@@ -253,6 +262,9 @@ rindaman check --json --debt-mode changed-only
 rindaman check --json --fail-existing
 rindaman check --json --baseline-path .rindaman/baseline.json
 rindaman check --json --no-baseline
+rindaman check --workspace packages/api --json
+rindaman check --workspaces --json
+rindaman baseline --workspaces --json
 ```
 
 ## GitHub-only usage

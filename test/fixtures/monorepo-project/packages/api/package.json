@@ -1,0 +1,15 @@
+{
+  "name": "@rindaman/api",
+  "private": true,
+  "scripts": {
+    "typecheck": "node -e \"process.exit(1)\""
+  },
+  "rindaman": {
+    "checks": {
+      "semantic": false,
+      "types": true,
+      "syntax": false,
+      "hygiene": false
+    }
+  }
+}

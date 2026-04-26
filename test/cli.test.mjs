@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,11 @@ const debtConfigFixtureDirectory = resolve(
   testDirectory,
   "fixtures",
   "debt-config",
+);
+const monorepoFixtureDirectory = resolve(
+  testDirectory,
+  "fixtures",
+  "monorepo-project",
 );
 
 function runCli(args, cwd) {
@@ -342,6 +347,82 @@ test("CLI check ignores invalid baseline JSON", () => {
   assert.equal(output.baseline.found, true);
   assert.equal(output.baseline.used, false);
   assert.deepEqual(output.baseline.checkNames, []);
+});
+
+test("CLI rejects missing workspace target with JSON error", () => {
+  const result = runCli(
+    ["check", "--json", "--workspace", "missing"],
+    monorepoFixtureDirectory,
+  );
+
+  assert.equal(result.status, 2);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.status, "error");
+  assert.match(output.error, /Workspace not found: missing/);
+});
+
+test("CLI check can target a workspace by path", () => {
+  const result = runCli(
+    ["check", "--json", "--workspace", "packages/api"],
+    monorepoFixtureDirectory,
+  );
+
+  assert.equal(result.status, 1);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.workspace.name, "@rindaman/api");
+  assert.equal(output.workspace.path, "packages/api");
+  assert.equal(output.debt.mode, "all");
+});
+
+test("CLI check can target a workspace by package name", () => {
+  const result = runCli(
+    ["check", "--json", "--workspace", "@rindaman/web"],
+    monorepoFixtureDirectory,
+  );
+
+  assert.equal(result.status, 0);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.workspace.name, "@rindaman/web");
+  assert.equal(output.workspace.path, "apps/web");
+});
+
+test("CLI check can run all workspaces", () => {
+  const result = runCli(["check", "--json", "--workspaces"], monorepoFixtureDirectory);
+
+  assert.equal(result.status, 1);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.command, "check");
+  assert.equal(output.status, "failed");
+  assert.deepEqual(
+    output.workspaces.map((workspaceResult) => workspaceResult.workspace.path),
+    ["apps/web", "packages/api"],
+  );
+});
+
+test("CLI baseline writes workspace-local baselines", () => {
+  rmSync(resolve(monorepoFixtureDirectory, "packages", "api", ".rindaman"), {
+    force: true,
+    recursive: true,
+  });
+  const result = runCli(
+    ["baseline", "--json", "--workspace", "packages/api"],
+    monorepoFixtureDirectory,
+  );
+
+  assert.equal(result.status, 0);
+  const output = parseJsonOutput(result);
+
+  assert.equal(output.workspace.path, "packages/api");
+  assert.match(output.baseline.path, /packages[\\/]api[\\/]\.rindaman[\\/]baseline\.json$/);
+  assert.deepEqual(output.baseline.checkNames, ["types"]);
+  rmSync(resolve(monorepoFixtureDirectory, "packages", "api", ".rindaman"), {
+    force: true,
+    recursive: true,
+  });
 });
 
 test("CLI audit reports unknown debt without failing", () => {

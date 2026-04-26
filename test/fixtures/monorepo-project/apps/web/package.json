@@ -1,0 +1,12 @@
+{
+  "name": "@rindaman/web",
+  "private": true,
+  "rindaman": {
+    "checks": {
+      "semantic": false,
+      "types": false,
+      "syntax": false,
+      "hygiene": false
+    }
+  }
+}

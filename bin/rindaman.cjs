@@ -56,6 +56,14 @@ function readDebtModeFlag() {
   return debtMode;
 }
 
+function readWorkspaceTarget() {
+  return readFlagValue("--workspace");
+}
+
+function shouldRunAllWorkspaces() {
+  return flags.has("--workspaces");
+}
+
 function colorize(color, message) {
   return jsonOutput ? message : `${color}${message}${RESET}`;
 }
@@ -153,6 +161,34 @@ function readConfig(projectRoot) {
   };
 }
 
+function readWorkspaceConfig(projectRoot, workspaceRoot) {
+  const rootConfig = readConfig(projectRoot);
+  const workspacePackageJson =
+    readJsonFile(path.join(workspaceRoot, "package.json")) ?? {};
+  const workspacePackageConfig = workspacePackageJson.rindaman ?? {};
+  const workspaceFileConfig =
+    readJsonFile(path.join(workspaceRoot, ".rindamanrc.json")) ?? {};
+
+  return {
+    ...rootConfig,
+    ...workspacePackageConfig,
+    ...workspaceFileConfig,
+    baselinePath:
+      workspaceFileConfig.baselinePath ??
+      workspacePackageConfig.baselinePath ??
+      ".rindaman/baseline.json",
+    checks: {
+      ...rootConfig.checks,
+      ...(workspacePackageConfig.checks ?? {}),
+      ...(workspaceFileConfig.checks ?? {}),
+    },
+    ignorePatterns:
+      workspaceFileConfig.ignorePatterns ??
+      workspacePackageConfig.ignorePatterns ??
+      rootConfig.ignorePatterns,
+  };
+}
+
 function applyFlagOverrides(config) {
   return {
     ...config,
@@ -195,6 +231,104 @@ function detectPackageManager(projectRoot) {
   }
 
   return "npm";
+}
+
+function readPackageWorkspacePatterns(projectRoot) {
+  const packageJson = readJsonFile(path.join(projectRoot, "package.json"));
+  const workspaces = packageJson?.workspaces;
+
+  if (Array.isArray(workspaces)) {
+    return workspaces;
+  }
+
+  if (Array.isArray(workspaces?.packages)) {
+    return workspaces.packages;
+  }
+
+  return [];
+}
+
+function readPnpmWorkspacePatterns(projectRoot) {
+  const workspacePath = path.join(projectRoot, "pnpm-workspace.yaml");
+
+  if (!fs.existsSync(workspacePath)) {
+    return [];
+  }
+
+  const workspaceFile = fs.readFileSync(workspacePath, "utf8");
+  const packageLines = workspaceFile
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "));
+
+  return packageLines.map((line) => line.slice(2).replace(/^["']|["']$/g, ""));
+}
+
+function expandWorkspacePattern(projectRoot, workspacePattern) {
+  if (!workspacePattern.endsWith("/*")) {
+    return fs.existsSync(path.join(projectRoot, workspacePattern))
+      ? [workspacePattern]
+      : [];
+  }
+
+  const parentPattern = workspacePattern.slice(0, -2);
+  const parentDirectory = path.join(projectRoot, parentPattern);
+
+  if (!fs.existsSync(parentDirectory)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(parentDirectory, { withFileTypes: true })
+    .filter((directoryEntry) => directoryEntry.isDirectory())
+    .map((directoryEntry) =>
+      normalizePathForMatch(path.join(parentPattern, directoryEntry.name)),
+    )
+    .filter((workspacePath) =>
+      fs.existsSync(path.join(projectRoot, workspacePath, "package.json")),
+    );
+}
+
+function discoverWorkspaces(projectRoot) {
+  const workspacePatterns = [
+    ...readPackageWorkspacePatterns(projectRoot),
+    ...readPnpmWorkspacePatterns(projectRoot),
+  ];
+  const workspacePaths = [
+    ...new Set(
+      workspacePatterns.flatMap((workspacePattern) =>
+        expandWorkspacePattern(projectRoot, workspacePattern),
+      ),
+    ),
+  ].sort();
+
+  return workspacePaths.map((workspacePath) => {
+    const workspaceRoot = path.join(projectRoot, workspacePath);
+    const workspacePackageJson =
+      readJsonFile(path.join(workspaceRoot, "package.json")) ?? {};
+
+    return {
+      name: workspacePackageJson.name ?? workspacePath,
+      path: workspacePath,
+      root: workspaceRoot,
+    };
+  });
+}
+
+function selectWorkspace(projectRoot, workspaceTarget) {
+  const workspaces = discoverWorkspaces(projectRoot);
+  const normalizedTarget = normalizePathForMatch(workspaceTarget);
+  const workspace = workspaces.find(
+    (candidateWorkspace) =>
+      candidateWorkspace.name === workspaceTarget ||
+      candidateWorkspace.path === normalizedTarget,
+  );
+
+  if (!workspace) {
+    throw new Error(`Workspace not found: ${workspaceTarget}`);
+  }
+
+  return workspace;
 }
 
 function getWindowsCommandName(commandName) {
@@ -414,6 +548,7 @@ function getExplicitTargetFiles(projectRoot) {
     "--report-path",
     "--debt-mode",
     "--baseline-path",
+    "--workspace",
   ]);
   const explicitTargetFiles = [];
 
@@ -792,14 +927,15 @@ function writeBaselineFile(projectRoot, config, checkNames) {
   };
 }
 
-function createCheckCommandResult(auditMode, projectRoot, config) {
-  const packageManager = detectPackageManager(projectRoot);
-  const baseRef = detectBaseRef(projectRoot, config);
-  const explicitTargetFiles = getExplicitTargetFiles(projectRoot);
+function createCheckCommandResult(auditMode, projectRoot, config, workspace) {
+  const executionRoot = workspace?.root ?? projectRoot;
+  const packageManager = detectPackageManager(executionRoot);
+  const baseRef = detectBaseRef(executionRoot, config);
+  const explicitTargetFiles = getExplicitTargetFiles(executionRoot);
   const allChangedFiles = config.changedOnly
     ? explicitTargetFiles.length > 0
       ? explicitTargetFiles
-      : getChangedFiles(projectRoot, baseRef)
+      : getChangedFiles(executionRoot, baseRef)
     : [];
   const changedFiles = filterIgnoredFiles(
     allChangedFiles,
@@ -809,7 +945,7 @@ function createCheckCommandResult(auditMode, projectRoot, config) {
     ? changedFiles.filter(isJavaScriptOrTypeScriptFile)
     : [];
   const inheritOutput = !jsonOutput;
-  const formatter = detectFormatter(projectRoot);
+  const formatter = detectFormatter(executionRoot) ?? detectFormatter(projectRoot);
 
   const checks = [];
 
@@ -817,7 +953,7 @@ function createCheckCommandResult(auditMode, projectRoot, config) {
     checks.push(
       createCheckResult(
         "semantic",
-        runSemanticCheck(projectRoot, targetFiles, config, inheritOutput),
+        runSemanticCheck(executionRoot, targetFiles, config, inheritOutput),
       ),
     );
   } else {
@@ -828,7 +964,7 @@ function createCheckCommandResult(auditMode, projectRoot, config) {
     checks.push(
       createCheckResult(
         "types",
-        runTypeCheck(projectRoot, packageManager, inheritOutput),
+        runTypeCheck(executionRoot, packageManager, inheritOutput),
       ),
     );
   } else {
@@ -840,7 +976,7 @@ function createCheckCommandResult(auditMode, projectRoot, config) {
       createCheckResult(
         "syntax",
         runSyntaxCheck(
-          projectRoot,
+          executionRoot,
           formatter,
           targetFiles,
           config.changedOnly,
@@ -854,13 +990,13 @@ function createCheckCommandResult(auditMode, projectRoot, config) {
 
   if (config.checks.hygiene) {
     checks.push(
-      createCheckResult("hygiene", runHygieneCheck(projectRoot, inheritOutput)),
+      createCheckResult("hygiene", runHygieneCheck(executionRoot, inheritOutput)),
     );
   } else {
     checks.push(createSkippedCheck("hygiene", "Disabled by config", "info"));
   }
 
-  const baseline = readBaselineFile(projectRoot, config);
+  const baseline = readBaselineFile(executionRoot, config);
   const debt = createDebtResult(
     config,
     config.changedOnly,
@@ -874,6 +1010,7 @@ function createCheckCommandResult(auditMode, projectRoot, config) {
     command: auditMode ? "audit" : "check",
     status: auditMode && status === "failed" ? "audit_failed" : status,
     projectRoot,
+    workspace: workspace ?? null,
     packageManager,
     baseRef,
     changedOnly: config.changedOnly,
@@ -881,7 +1018,7 @@ function createCheckCommandResult(auditMode, projectRoot, config) {
     targetFiles,
     formatter: formatter ?? null,
     reportPath: config.writeReport
-      ? path.resolve(projectRoot, config.reportPath)
+      ? path.resolve(executionRoot, config.reportPath)
       : null,
     checks,
     baseline,
@@ -899,10 +1036,64 @@ function createCheckCommandResult(auditMode, projectRoot, config) {
   };
 }
 
+function getWorkspaceAggregateStatus(workspaceResults) {
+  return workspaceResults.some((workspaceResult) =>
+    ["failed", "audit_failed", "error"].includes(workspaceResult.status),
+  )
+    ? "failed"
+    : "passed";
+}
+
+function createWorkspaceAggregateResult(auditMode, projectRoot) {
+  const workspaces = discoverWorkspaces(projectRoot);
+
+  if (workspaces.length === 0) {
+    throw new Error("No workspaces found");
+  }
+
+  const workspaceResults = workspaces.map((workspace) => {
+    const workspaceConfig = applyFlagOverrides(
+      readWorkspaceConfig(projectRoot, workspace.root),
+    );
+    return createCheckCommandResult(
+      auditMode,
+      projectRoot,
+      workspaceConfig,
+      workspace,
+    );
+  });
+  const status = getWorkspaceAggregateStatus(workspaceResults);
+
+  return {
+    command: auditMode ? "audit" : "check",
+    status: auditMode && status === "failed" ? "audit_failed" : status,
+    projectRoot,
+    workspaces: workspaceResults,
+  };
+}
+
 function runCheckCommand(auditMode) {
   const projectRoot = findProjectRoot(process.cwd());
-  const config = applyFlagOverrides(readConfig(projectRoot));
-  const result = createCheckCommandResult(auditMode, projectRoot, config);
+  if (shouldRunAllWorkspaces()) {
+    const aggregateResult = createWorkspaceAggregateResult(auditMode, projectRoot);
+
+    if (jsonOutput) {
+      writeJsonResult(aggregateResult);
+    } else {
+      printHumanSummary({ checks: [], status: aggregateResult.status });
+    }
+
+    process.exit(getExitCodeForStatus(aggregateResult.status, auditMode));
+  }
+
+  const workspaceTarget = readWorkspaceTarget();
+  const workspace = workspaceTarget
+    ? selectWorkspace(projectRoot, workspaceTarget)
+    : undefined;
+  const config = applyFlagOverrides(
+    workspace ? readWorkspaceConfig(projectRoot, workspace.root) : readConfig(projectRoot),
+  );
+  const result = createCheckCommandResult(auditMode, projectRoot, config, workspace);
 
   printSection(auditMode ? "Rindaman Audit" : "Rindaman Check");
   print(`[Rindaman] Project root: ${result.projectRoot}`);
@@ -921,10 +1112,61 @@ function runCheckCommand(auditMode) {
 
 function runBaselineCommand() {
   const projectRoot = findProjectRoot(process.cwd());
-  const config = applyFlagOverrides(readConfig(projectRoot));
-  const checkResult = createCheckCommandResult(true, projectRoot, config);
+  if (shouldRunAllWorkspaces()) {
+    const workspaces = discoverWorkspaces(projectRoot);
+    const workspaceResults = workspaces.map((workspace) => {
+      const workspaceConfig = applyFlagOverrides(
+        readWorkspaceConfig(projectRoot, workspace.root),
+      );
+      const checkResult = createCheckCommandResult(
+        true,
+        projectRoot,
+        workspaceConfig,
+        workspace,
+      );
+      const baseline = writeBaselineFile(
+        workspace.root,
+        workspaceConfig,
+        getFailedCheckNames(checkResult.checks),
+      );
+
+      return {
+        command: "baseline",
+        status: "passed",
+        projectRoot,
+        workspace,
+        baseline,
+        checks: checkResult.checks,
+      };
+    });
+    const result = {
+      command: "baseline",
+      status: "passed",
+      projectRoot,
+      workspaces: workspaceResults,
+    };
+
+    if (jsonOutput) {
+      writeJsonResult(result);
+    } else {
+      printSection("Rindaman Baseline");
+      console.log(`[Rindaman] Workspaces: ${workspaceResults.length}`);
+    }
+
+    process.exit(EXIT_OK);
+  }
+
+  const workspaceTarget = readWorkspaceTarget();
+  const workspace = workspaceTarget
+    ? selectWorkspace(projectRoot, workspaceTarget)
+    : undefined;
+  const config = applyFlagOverrides(
+    workspace ? readWorkspaceConfig(projectRoot, workspace.root) : readConfig(projectRoot),
+  );
+  const executionRoot = workspace?.root ?? projectRoot;
+  const checkResult = createCheckCommandResult(true, projectRoot, config, workspace);
   const baseline = writeBaselineFile(
-    projectRoot,
+    executionRoot,
     config,
     getFailedCheckNames(checkResult.checks),
   );
@@ -932,6 +1174,7 @@ function runBaselineCommand() {
     command: "baseline",
     status: "passed",
     projectRoot,
+    workspace: workspace ?? null,
     baseline,
     checks: checkResult.checks,
   };

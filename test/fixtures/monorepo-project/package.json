@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "rindaman": {
+    "checks": {
+      "semantic": false,
+      "types": false,
+      "syntax": false,
+      "hygiene": false
+    }
+  }
+}
