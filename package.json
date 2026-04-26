@@ -1,0 +1,68 @@
+{
+  "name": "rindaman",
+  "version": "1.0.0",
+  "description": "OpenCode plugin that combines strict responses with lifecycle code quality checks.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "rindaman": "bin/rindaman.cjs"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "SKILL.md",
+    "src/quality-engine",
+    "opencode.example.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "node bin/rindaman.cjs",
+    "doctor": "node bin/rindaman.cjs doctor",
+    "test": "node --test"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "strict-mode",
+    "quality",
+    "code-quality",
+    "typescript",
+    "biome",
+    "knip"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mahdyarief/rindaman.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mahdyarief/rindaman/issues"
+  },
+  "homepage": "https://github.com/mahdyarief/rindaman#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.4.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  },
+  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  }
+}
