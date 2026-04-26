@@ -1,0 +1,4 @@
+{
+  "debtMode": "changed-only",
+  "failOnExistingDebt": false
+}

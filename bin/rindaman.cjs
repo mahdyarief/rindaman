@@ -42,6 +42,20 @@ function readFlagValue(flagName) {
   return commandArgs[flagIndex + 1];
 }
 
+function readDebtModeFlag() {
+  const debtMode = readFlagValue("--debt-mode");
+
+  if (!debtMode) {
+    return undefined;
+  }
+
+  if (!["changed-only", "all"].includes(debtMode)) {
+    throw new Error(`Invalid --debt-mode value: ${debtMode}`);
+  }
+
+  return debtMode;
+}
+
 function colorize(color, message) {
   return jsonOutput ? message : `${color}${message}${RESET}`;
 }
@@ -101,6 +115,8 @@ function createDefaultConfig() {
     reportPath: ".rindaman/report.md",
     allowPackageInstall: false,
     baseRef: undefined,
+    debtMode: "changed-only",
+    failOnExistingDebt: false,
     ignorePatterns: ["dist/**", "coverage/**", "node_modules/**", ".git/**"],
     checks: {
       semantic: true,
@@ -154,6 +170,10 @@ function applyFlagOverrides(config) {
       ? true
       : config.allowPackageInstall,
     baseRef: readFlagValue("--base") ?? config.baseRef,
+    debtMode: readDebtModeFlag() ?? config.debtMode,
+    failOnExistingDebt: flags.has("--fail-existing")
+      ? true
+      : config.failOnExistingDebt,
   };
 }
 
@@ -384,6 +404,30 @@ function getChangedFiles(projectRoot, baseRef) {
   );
 }
 
+function getExplicitTargetFiles(projectRoot) {
+  const flagsWithValues = new Set(["--base", "--report-path", "--debt-mode"]);
+  const explicitTargetFiles = [];
+
+  for (let argumentIndex = 0; argumentIndex < commandArgs.length; argumentIndex += 1) {
+    const commandArgument = commandArgs[argumentIndex];
+
+    if (flagsWithValues.has(commandArgument)) {
+      argumentIndex += 1;
+      continue;
+    }
+
+    if (commandArgument.startsWith("--")) {
+      continue;
+    }
+
+    if (fs.existsSync(path.join(projectRoot, commandArgument))) {
+      explicitTargetFiles.push(commandArgument);
+    }
+  }
+
+  return explicitTargetFiles;
+}
+
 function isJavaScriptOrTypeScriptFile(filePath) {
   return /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(filePath);
 }
@@ -484,6 +528,37 @@ function createCheckResult(name, checkResult) {
       ? (checkResult.stderr ?? "")
       : undefined,
   };
+}
+
+function createDebtResult(config, changedOnly, targetFiles, checks) {
+  const failedChecks = checks.filter((check) => check.status === "failed");
+  const debtResult = {
+    mode: config.debtMode,
+    classification: "none",
+    introducedChecks: [],
+    existingChecks: [],
+    unknownChecks: [],
+  };
+
+  if (failedChecks.length === 0) {
+    return debtResult;
+  }
+
+  const failedCheckNames = failedChecks.map((check) => check.name);
+
+  if (
+    config.debtMode === "changed-only" &&
+    changedOnly &&
+    targetFiles.length > 0
+  ) {
+    debtResult.introducedChecks = failedCheckNames;
+    debtResult.classification = "introduced";
+    return debtResult;
+  }
+
+  debtResult.unknownChecks = failedCheckNames;
+  debtResult.classification = "unknown";
+  return debtResult;
 }
 
 function runSemanticCheck(projectRoot, targetFiles, config, inherit) {
@@ -627,8 +702,11 @@ function runCheckCommand(auditMode) {
   const config = applyFlagOverrides(readConfig(projectRoot));
   const packageManager = detectPackageManager(projectRoot);
   const baseRef = detectBaseRef(projectRoot, config);
+  const explicitTargetFiles = getExplicitTargetFiles(projectRoot);
   const allChangedFiles = config.changedOnly
-    ? getChangedFiles(projectRoot, baseRef)
+    ? explicitTargetFiles.length > 0
+      ? explicitTargetFiles
+      : getChangedFiles(projectRoot, baseRef)
     : [];
   const changedFiles = filterIgnoredFiles(
     allChangedFiles,
@@ -695,6 +773,7 @@ function runCheckCommand(auditMode) {
     checks.push(createSkippedCheck("hygiene", "Disabled by config", "info"));
   }
 
+  const debt = createDebtResult(config, config.changedOnly, targetFiles, checks);
   const status = getOverallStatus(checks, config);
   const result = {
     command: auditMode ? "audit" : "check",
@@ -710,10 +789,13 @@ function runCheckCommand(auditMode) {
       ? path.resolve(projectRoot, config.reportPath)
       : null,
     checks,
+    debt,
     policy: {
       strictWarnings: config.strictWarnings,
       allowPackageInstall: config.allowPackageInstall,
       writeReport: config.writeReport,
+      debtMode: config.debtMode,
+      failOnExistingDebt: config.failOnExistingDebt,
       ignorePatterns: config.ignorePatterns,
     },
   };
@@ -838,6 +920,8 @@ function printHelp() {
       "  --base <ref>       Compare changed files against a specific base ref",
       "  --report           Write .rindaman/report.md through the semantic engine",
       "  --report-path <p>  Write report to a custom path when --report is enabled",
+      "  --debt-mode <mode> Classify debt with changed-only or all mode",
+      "  --fail-existing    Treat existing debt as blocking",
       "",
       "Exit codes:",
       `  ${EXIT_OK} passed or audit completed`,

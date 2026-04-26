@@ -1,0 +1,12 @@
+{
+  "rindaman": {
+    "debtMode": "all",
+    "failOnExistingDebt": false,
+    "checks": {
+      "semantic": false,
+      "types": false,
+      "syntax": false,
+      "hygiene": false
+    }
+  }
+}

@@ -104,6 +104,7 @@ The JSON result includes:
 - `formatter`
 - `reportPath`
 - `checks`
+- `debt`
 - `policy`
 
 Each check reports:
@@ -121,6 +122,16 @@ Use `--include-output` to include captured `stdout` and `stderr` in JSON output:
 ```bash
 rindaman check --json --include-output
 ```
+
+### Debt classification
+
+Rindaman reports failed checks in a `debt` object:
+
+- `introducedChecks` - failures tied to changed target files
+- `existingChecks` - reserved for baseline-aware classification
+- `unknownChecks` - failures that cannot be safely tied to changed files
+
+By default, `check` blocks introduced and unknown debt. `audit` reports the same classification but exits successfully.
 
 ## Safety policy
 
@@ -184,6 +195,8 @@ Rindaman reads project-level configuration from either:
   "reportPath": ".rindaman/report.md",
   "allowPackageInstall": false,
   "baseRef": "origin/main",
+  "debtMode": "changed-only",
+  "failOnExistingDebt": false,
   "ignorePatterns": [
     "dist/**",
     "coverage/**",
@@ -206,6 +219,8 @@ Rindaman reads project-level configuration from either:
   "rindaman": {
     "changedOnly": true,
     "strictWarnings": false,
+    "debtMode": "changed-only",
+    "failOnExistingDebt": false,
     "checks": {
       "semantic": true,
       "types": true,
@@ -221,6 +236,8 @@ CLI flags override config file values:
 ```bash
 rindaman check --json --strict --base origin/main
 rindaman check --all --report --report-path .rindaman/report.md
+rindaman check --json --debt-mode changed-only
+rindaman check --json --fail-existing
 ```
 
 ## GitHub-only usage
