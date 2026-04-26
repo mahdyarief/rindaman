@@ -73,12 +73,54 @@ The plugin injects rules with `experimental.chat.system.transform` and keeps com
 
 ```bash
 rindaman check
+rindaman check --json
 rindaman audit
+rindaman audit --json
 rindaman doctor
+rindaman doctor --json
 rindaman --help
 ```
 
 `doctor` validates basic runtime setup. `audit` runs checks without making quality failures fatal.
+
+### JSON check output
+
+Use `--json` when Rindaman is called by OpenCode tools, CI, or other automation:
+
+```bash
+rindaman check --json
+```
+
+The JSON result includes:
+
+- `command`
+- `status`
+- `projectRoot`
+- `packageManager`
+- `baseRef`
+- `changedOnly`
+- `changedFiles`
+- `targetFiles`
+- `formatter`
+- `reportPath`
+- `checks`
+- `policy`
+
+Each check reports:
+
+- `name`
+- `status`
+- `severity`
+- `command`
+- `reason`
+- `exitCode`
+- `durationMs`
+
+Use `--include-output` to include captured `stdout` and `stderr` in JSON output:
+
+```bash
+rindaman check --json --include-output
+```
 
 ## Safety policy
 
@@ -124,6 +166,62 @@ Supported options:
 | `strictResponses` | `true` | Report strict response mode in status |
 | `qualityLifecycle` | `true` | Report lifecycle mode in status |
 | `verificationRequired` | `true` | Mark changed sessions as requiring verification |
+
+## Config file support
+
+Rindaman reads project-level configuration from either:
+
+1. `.rindamanrc.json`
+2. `package.json` under the `rindaman` key
+
+`.rindamanrc.json` example:
+
+```json
+{
+  "changedOnly": true,
+  "strictWarnings": false,
+  "writeReport": false,
+  "reportPath": ".rindaman/report.md",
+  "allowPackageInstall": false,
+  "baseRef": "origin/main",
+  "ignorePatterns": [
+    "dist/**",
+    "coverage/**",
+    "node_modules/**",
+    ".git/**"
+  ],
+  "checks": {
+    "semantic": true,
+    "types": true,
+    "syntax": true,
+    "hygiene": true
+  }
+}
+```
+
+`package.json` example:
+
+```json
+{
+  "rindaman": {
+    "changedOnly": true,
+    "strictWarnings": false,
+    "checks": {
+      "semantic": true,
+      "types": true,
+      "syntax": true,
+      "hygiene": true
+    }
+  }
+}
+```
+
+CLI flags override config file values:
+
+```bash
+rindaman check --json --strict --base origin/main
+rindaman check --all --report --report-path .rindaman/report.md
+```
 
 ## GitHub-only usage
 

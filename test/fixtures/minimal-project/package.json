@@ -1,0 +1,13 @@
+{
+  "name": "rindaman-minimal-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "rindaman": {
+    "checks": {
+      "semantic": false,
+      "types": false,
+      "syntax": false,
+      "hygiene": false
+    }
+  }
+}

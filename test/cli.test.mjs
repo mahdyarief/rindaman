@@ -7,6 +7,11 @@ import test from "node:test";
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const packageDirectory = resolve(testDirectory, "..");
 const cliPath = resolve(packageDirectory, "bin", "rindaman.cjs");
+const minimalFixtureDirectory = resolve(
+  testDirectory,
+  "fixtures",
+  "minimal-project",
+);
 
 test("CLI help exits successfully", () => {
   const result = spawnSync("node", [cliPath, "--help"], {
@@ -28,4 +33,21 @@ test("CLI doctor supports JSON output", () => {
   const output = JSON.parse(result.stdout);
   assert.equal(output.command, "doctor");
   assert.equal(output.status, "passed");
+});
+
+test("CLI check supports fixture-backed JSON output", () => {
+  const result = spawnSync("node", [cliPath, "check", "--json"], {
+    cwd: minimalFixtureDirectory,
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.command, "check");
+  assert.equal(output.status, "passed");
+  assert.equal(output.projectRoot, minimalFixtureDirectory);
+  assert.deepEqual(
+    output.checks.map((check) => check.status),
+    ["skipped", "skipped", "skipped", "skipped"],
+  );
 });

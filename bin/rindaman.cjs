@@ -1,19 +1,14 @@
 #!/usr/bin/env node
-/**
- * rindaman - lifecycle quality runner
- *
- * This skill unifies code quality into 4 pillars:
- * - Pillar 1: Semantic quality
- * - Pillar 2: TypeScript (structure)
- * - Pillar 3: Biome/Prettier (syntax)
- * - Pillar 4: Unused Detection (hygiene)
- *
- * Run from project root: rindaman
- */
 
-const { execSync, spawnSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const EXIT_OK = 0;
+const EXIT_QUALITY_BLOCKER = 1;
+const EXIT_RUNTIME_ERROR = 2;
+const EXIT_SETUP_INCOMPLETE = 3;
+const EXIT_UNSAFE_BLOCKED = 4;
 
 const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
@@ -21,255 +16,866 @@ const RED = "\x1b[31m";
 const BLUE = "\x1b[36m";
 const RESET = "\x1b[0m";
 
+const KNOWN_COMMANDS = new Set(["check", "audit", "doctor", "help"]);
+const rawArgs = process.argv.slice(2);
+const firstArg = rawArgs[0];
+const command = firstArg && KNOWN_COMMANDS.has(firstArg) ? firstArg : "check";
+const commandArgs =
+  command === "check" &&
+  firstArg &&
+  !firstArg.startsWith("--") &&
+  !KNOWN_COMMANDS.has(firstArg)
+    ? rawArgs
+    : rawArgs.slice(command === "check" && firstArg !== "check" ? 0 : 1);
+const flags = new Set(
+  commandArgs.filter((argument) => argument.startsWith("--")),
+);
+const jsonOutput = flags.has("--json");
 
-const cliArgs = process.argv.slice(2);
-const cliCommand = cliArgs.find((arg) => !arg.startsWith("--")) || "check";
-const cliJson = cliArgs.includes("--json");
+function readFlagValue(flagName) {
+  const flagIndex = commandArgs.indexOf(flagName);
 
-if (cliArgs.includes("--help") || cliCommand === "help") {
-  console.log([
-    "Rindaman - OpenCode strict quality governor",
-    "",
-    "Usage:",
-    "  rindaman check [--json] [--report]",
-    "  rindaman audit [--json]",
-    "  rindaman doctor [--json]",
-    "",
-    "Exit codes:",
-    "  0 passed or audit completed",
-    "  1 quality blockers found",
-    "  2 runtime error",
-    "  3 setup incomplete",
-  ].join("\n"));
-  process.exit(0);
+  if (flagIndex === -1) {
+    return undefined;
+  }
+
+  return commandArgs[flagIndex + 1];
 }
 
+function colorize(color, message) {
+  return jsonOutput ? message : `${color}${message}${RESET}`;
+}
 
-if (cliCommand === "doctor") {
-  const doctorResult = {
-    command: "doctor",
-    status: "passed",
-    node: process.version,
-    cwd: process.cwd(),
-    packageJson: fs.existsSync(path.join(process.cwd(), "package.json")),
-    git: run("git", ["--version"], process.cwd()) ? "available" : "unavailable",
+function print(message) {
+  if (!jsonOutput) {
+    console.log(message);
+  }
+}
+
+function printError(message) {
+  if (!jsonOutput) {
+    console.error(colorize(RED, `[Rindaman] ${message}`));
+  }
+}
+
+function printSection(message) {
+  print(`\n${colorize(BLUE, `=== ${message} ===`)}`);
+}
+
+function findProjectRoot(startDirectory) {
+  let currentDirectory = startDirectory;
+
+  while (currentDirectory) {
+    if (fs.existsSync(path.join(currentDirectory, "package.json"))) {
+      return currentDirectory;
+    }
+
+    const parentDirectory = path.dirname(currentDirectory);
+
+    if (parentDirectory === currentDirectory) {
+      return startDirectory;
+    }
+
+    currentDirectory = parentDirectory;
+  }
+
+  return startDirectory;
+}
+
+function readJsonFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return undefined;
+  }
+
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function createDefaultConfig() {
+  return {
+    changedOnly: true,
+    strictWarnings: false,
+    writeReport: false,
+    reportPath: ".rindaman/report.md",
+    allowPackageInstall: false,
+    baseRef: undefined,
+    ignorePatterns: ["dist/**", "coverage/**", "node_modules/**", ".git/**"],
+    checks: {
+      semantic: true,
+      types: true,
+      syntax: true,
+      hygiene: true,
+    },
   };
-
-  if (cliJson) {
-    console.log(JSON.stringify(doctorResult, null, 2));
-  } else {
-    console.log("[Rindaman] Doctor passed");
-    console.log("[Rindaman] Node: " + doctorResult.node);
-    console.log("[Rindaman] package.json: " + String(doctorResult.packageJson));
-    console.log("[Rindaman] git: " + doctorResult.git);
-  }
-  process.exit(0);
 }
 
-const isAuditMode = cliCommand === "audit";
-const writeReport = cliArgs.includes("--report");
-process.env.RINDAMAN_WRITE_REPORT = writeReport ? "1" : "0";
+function readConfig(projectRoot) {
+  const packageJson =
+    readJsonFile(path.join(projectRoot, "package.json")) ?? {};
+  const packageConfig = packageJson.rindaman ?? {};
+  const fileConfig =
+    readJsonFile(path.join(projectRoot, ".rindamanrc.json")) ?? {};
+  const defaultConfig = createDefaultConfig();
 
-function log(msg) {
-  console.log("[Rindaman] " + msg);
-}
-function section(msg) {
-  console.log("\n" + BLUE + "=== " + msg + " ===" + RESET);
-}
-function error(msg) {
-  console.error(RED + "[Rindaman] " + msg + RESET);
-}
-function success(msg) {
-  console.log(GREEN + "[Rindaman] " + msg + RESET);
-}
-
-function run(cmd, args = [], cwd = process.cwd()) {
-  try {
-    const result = spawnSync(cmd, args, { stdio: ["pipe", "pipe", "pipe"], cwd: cwd });
-    return result.stdout ? result.stdout.toString().trim() : "";
-  } catch (e) {
-    return "";
-  }
+  return {
+    ...defaultConfig,
+    ...packageConfig,
+    ...fileConfig,
+    checks: {
+      ...defaultConfig.checks,
+      ...(packageConfig.checks ?? {}),
+      ...(fileConfig.checks ?? {}),
+    },
+    ignorePatterns:
+      fileConfig.ignorePatterns ??
+      packageConfig.ignorePatterns ??
+      defaultConfig.ignorePatterns,
+  };
 }
 
-function safeExec(cmd, args, cwd = process.cwd()) {
-  const isWin = process.platform === "win32";
-  
-  // If Windows and the command is a package manager, we need .cmd
-  const isPM = ["npm", "npx", "yarn", "pnpm", "bun", "bunx"].includes(cmd);
-  const finalCmd = (isWin && isPM) ? `${cmd}.cmd` : cmd;
+function applyFlagOverrides(config) {
+  return {
+    ...config,
+    changedOnly: flags.has("--all")
+      ? false
+      : flags.has("--changed-only")
+        ? true
+        : config.changedOnly,
+    strictWarnings: flags.has("--strict") ? true : config.strictWarnings,
+    writeReport: flags.has("--report")
+      ? true
+      : flags.has("--no-report")
+        ? false
+        : config.writeReport,
+    reportPath: readFlagValue("--report-path") ?? config.reportPath,
+    allowPackageInstall: flags.has("--allow-install")
+      ? true
+      : config.allowPackageInstall,
+    baseRef: readFlagValue("--base") ?? config.baseRef,
+  };
+}
 
-  const result = spawnSync(finalCmd, args, { stdio: "inherit", cwd: cwd });
-
-  // If command not found, fallback to shell
-  if (result.error && result.error.code === 'ENOENT' && isWin) {
-    const shellResult = spawnSync(cmd, args, { stdio: "inherit", cwd: cwd, shell: true });
-    if (shellResult.status !== 0) {
-      throw new Error(`Command failed: ${cmd} ${args.join(" ")}`);
-    }
-    return;
+function detectPackageManager(projectRoot) {
+  if (fs.existsSync(path.join(projectRoot, "bun.lockb"))) {
+    return "bun";
   }
 
-  if (result.status !== 0) {
-    throw new Error(`Command failed: ${finalCmd} ${args.join(" ")}`);
-  }
-}
-
-// Find project root - walk up from current working directory
-let projectRoot = process.cwd();
-const sep = path.sep;
-while (projectRoot) {
-  if (fs.existsSync(path.join(projectRoot, "package.json"))) break;
-  const parent = path.dirname(projectRoot);
-  if (parent === projectRoot) break;
-  projectRoot = parent;
-}
-
-// 1. Detect Package Manager
-const isBun = fs.existsSync(path.join(projectRoot, "bun.lockb"));
-const isPnpm = fs.existsSync(path.join(projectRoot, "pnpm-lock.yaml"));
-const isYarn = fs.existsSync(path.join(projectRoot, "yarn.lock"));
-const pm = isBun ? "bun" : isPnpm ? "pnpm" : isYarn ? "yarn" : "npm";
-const pmRun = pm === "npm" ? "npm run" : pm;
-const pmX = pm === "bun" ? "bunx" : pm === "pnpm" ? "pnpm dlx" : pm === "yarn" ? "yarn dlx" : "npx";
-
-// 2. Detect Default Branch
-const upstreamRef = run("git", ["rev-parse", "--verify", "upstream/main"]) ? "upstream/main" :
-                    run("git", ["rev-parse", "--verify", "origin/main"]) ? "origin/main" :
-                    run("git", ["rev-parse", "--verify", "main"]) ? "main" :
-                    run("git", ["rev-parse", "--verify", "master"]) ? "master" : "HEAD";
-
-const touchedFiles = run("git", ["diff", upstreamRef, "--name-only", "--diff-filter=ACMR"], projectRoot)
-  .split("\n")
-  .filter(f => (f.endsWith(".ts") || f.endsWith(".tsx")) && fs.existsSync(path.join(projectRoot, f)));
-
-section("4 Pillars Verification");
-
-const enginePath = path.resolve(__dirname, '..', 'src', 'quality-engine', 'engine.cjs');
-
-log(`Detected Package Manager: ${pm}`);
-log(`Comparing against: ${upstreamRef}`);
-
-// --- Pillar 1: Semantic Quality ---
-log("Pillar 1/4: semantic quality...");
-try {
-  safeExec("node", [enginePath, ...touchedFiles], projectRoot);
-  success("Pillar 1/4: semantic checks passed.");
-} catch (e) {
-  error("Pillar 1/4 failed.");
-  process.exit(isAuditMode ? 0 : 1);
-}
-
-// --- Pillar 2: TypeScript ---
-log("Pillar 2/4: typecheck...");
-let pkg;
-try {
-  pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
-} catch (e) {
-  error("Failed to parse package.json");
-  process.exit(1);
-}
-
-const scripts = pkg.scripts || {};
-if (scripts.typecheck) {
-  try {
-    const cmdParts = pmRun.split(" ");
-    safeExec(cmdParts[0], [...cmdParts.slice(1), "typecheck"], projectRoot);
-    success("Pillar 2/4: typecheck passed.");
-  } catch (e) {
-    error("Pillar 2/4 failed.");
-    process.exit(isAuditMode ? 0 : 1);
-  }
-} else {
-  log("No typecheck script in root - checking workspaces...");
-  
-  // Detect workspaces
-  let workspaces = [];
-  if (Array.isArray(pkg.workspaces)) {
-    workspaces = pkg.workspaces;
-  } else if (pkg.workspaces && Array.isArray(pkg.workspaces.packages)) {
-    workspaces = pkg.workspaces.packages;
-  } else {
-    // Fallback to manual check if no workspaces defined
-    if (fs.existsSync(path.join(projectRoot, "client"))) workspaces.push("client");
-    if (fs.existsSync(path.join(projectRoot, "server"))) workspaces.push("server");
-    if (fs.existsSync(path.join(projectRoot, "apps"))) workspaces.push("apps/*");
-    if (fs.existsSync(path.join(projectRoot, "packages"))) workspaces.push("packages/*");
+  if (fs.existsSync(path.join(projectRoot, "pnpm-lock.yaml"))) {
+    return "pnpm";
   }
 
-  // Resolve glob patterns for workspaces (simple check)
-  const resolvedWorkspaces = [];
-  workspaces.forEach(ws => {
-    if (ws.endsWith("/*")) {
-      const base = ws.slice(0, -2);
-      const fullBase = path.join(projectRoot, base);
-      if (fs.existsSync(fullBase)) {
-        fs.readdirSync(fullBase).forEach(dir => {
-          if (fs.existsSync(path.join(fullBase, dir, "package.json"))) {
-            resolvedWorkspaces.push(path.join(base, dir));
-          }
-        });
-      }
-    } else {
-      if (fs.existsSync(path.join(projectRoot, ws, "package.json"))) {
-        resolvedWorkspaces.push(ws);
-      }
-    }
+  if (fs.existsSync(path.join(projectRoot, "yarn.lock"))) {
+    return "yarn";
+  }
+
+  return "npm";
+}
+
+function getWindowsCommandName(commandName) {
+  if (process.platform !== "win32") {
+    return commandName;
+  }
+
+  if (["npm", "pnpm", "yarn", "bun"].includes(commandName)) {
+    return `${commandName}.cmd`;
+  }
+
+  return commandName;
+}
+
+function executeCommand(commandName, args, options = {}) {
+  const startTime = Date.now();
+  const finalCommandName = getWindowsCommandName(commandName);
+  let result = spawnSync(finalCommandName, args, {
+    cwd: options.cwd ?? process.cwd(),
+    encoding: "utf8",
+    stdio: options.inherit ? "inherit" : "pipe",
+    env: {
+      ...process.env,
+      ...(options.env ?? {}),
+    },
   });
 
-  let typecheckFailed = false;
-  for (const ws of resolvedWorkspaces) {
-    const wsPkg = JSON.parse(fs.readFileSync(path.join(projectRoot, ws, "package.json"), "utf8"));
-    if (wsPkg.scripts && wsPkg.scripts.typecheck) {
-      log(`Running typecheck in ${ws}...`);
-      try {
-        const cmdParts = pmRun.split(" ");
-        safeExec(cmdParts[0], [...cmdParts.slice(1), "typecheck"], path.join(projectRoot, ws));
-      } catch (e) {
-        typecheckFailed = true;
-      }
+  if (result.error?.code === "ENOENT" && process.platform === "win32") {
+    result = spawnSync(commandName, args, {
+      cwd: options.cwd ?? process.cwd(),
+      encoding: "utf8",
+      stdio: options.inherit ? "inherit" : "pipe",
+      env: {
+        ...process.env,
+        ...(options.env ?? {}),
+      },
+      shell: true,
+    });
+  }
+
+  return {
+    result,
+    durationMs: Date.now() - startTime,
+    command: [commandName, ...args].join(" "),
+  };
+}
+
+function getLocalBinaryPath(projectRoot, binaryName) {
+  const extension = process.platform === "win32" ? ".cmd" : "";
+  return path.join(
+    projectRoot,
+    "node_modules",
+    ".bin",
+    `${binaryName}${extension}`,
+  );
+}
+
+function executeLocalBinary(projectRoot, binaryName, args, inherit) {
+  const binaryPath = getLocalBinaryPath(projectRoot, binaryName);
+
+  if (!fs.existsSync(binaryPath)) {
+    return {
+      status: "skipped",
+      severity: "warning",
+      command: [binaryName, ...args].join(" "),
+      reason: `${binaryName} is not installed locally`,
+      exitCode: null,
+      durationMs: 0,
+    };
+  }
+
+  const executedCommand = executeCommand(binaryPath, args, {
+    cwd: projectRoot,
+    inherit,
+  });
+
+  return {
+    status: executedCommand.result.status === 0 ? "passed" : "failed",
+    severity: "blocker",
+    command: executedCommand.command,
+    reason: null,
+    exitCode: executedCommand.result.status,
+    durationMs: executedCommand.durationMs,
+    stdout: executedCommand.result.stdout ?? "",
+    stderr: executedCommand.result.stderr ?? "",
+  };
+}
+
+function getPackageScriptCommand(packageManager, scriptName) {
+  if (packageManager === "npm") {
+    return {
+      commandName: "npm",
+      args: ["run", scriptName],
+    };
+  }
+
+  return {
+    commandName: packageManager,
+    args: [scriptName],
+  };
+}
+
+function executePackageScript(
+  projectRoot,
+  packageManager,
+  scriptName,
+  inherit,
+) {
+  const packageJson = readJsonFile(path.join(projectRoot, "package.json"));
+
+  if (!packageJson) {
+    return {
+      status: "skipped",
+      severity: "warning",
+      command: scriptName,
+      reason: "package.json not found",
+      exitCode: null,
+      durationMs: 0,
+    };
+  }
+
+  if (!packageJson.scripts || !packageJson.scripts[scriptName]) {
+    return {
+      status: "skipped",
+      severity: "warning",
+      command: scriptName,
+      reason: `script "${scriptName}" not found`,
+      exitCode: null,
+      durationMs: 0,
+    };
+  }
+
+  const scriptCommand = getPackageScriptCommand(packageManager, scriptName);
+  const executedCommand = executeCommand(
+    scriptCommand.commandName,
+    scriptCommand.args,
+    {
+      cwd: projectRoot,
+      inherit,
+    },
+  );
+
+  return {
+    status: executedCommand.result.status === 0 ? "passed" : "failed",
+    severity: "blocker",
+    command: executedCommand.command,
+    reason: null,
+    exitCode: executedCommand.result.status,
+    durationMs: executedCommand.durationMs,
+    stdout: executedCommand.result.stdout ?? "",
+    stderr: executedCommand.result.stderr ?? "",
+  };
+}
+
+function readGitOutput(projectRoot, gitArgs) {
+  const executedCommand = executeCommand("git", gitArgs, {
+    cwd: projectRoot,
+  });
+
+  if (executedCommand.result.status !== 0) {
+    return "";
+  }
+
+  return (executedCommand.result.stdout ?? "").trim();
+}
+
+function detectBaseRef(projectRoot, config) {
+  if (config.baseRef) {
+    return config.baseRef;
+  }
+
+  const candidateRefs = [
+    "upstream/main",
+    "origin/main",
+    "main",
+    "master",
+    "HEAD",
+  ];
+
+  for (const candidateRef of candidateRefs) {
+    if (readGitOutput(projectRoot, ["rev-parse", "--verify", candidateRef])) {
+      return candidateRef;
     }
   }
 
-  if (typecheckFailed) {
-    error("Pillar 2/4 failed.");
-    process.exit(isAuditMode ? 0 : 1);
-  }
-  success("Pillar 2/4: typecheck passed.");
+  return "HEAD";
 }
 
-// --- Pillar 3: Linter ---
-const hasBiome = fs.existsSync(path.join(projectRoot, "biome.json")) || fs.existsSync(path.join(projectRoot, "biome.jsonc"));
-const hasPrettier =
-  fs.existsSync(path.join(projectRoot, ".prettierrc")) ||
-  fs.existsSync(path.join(projectRoot, ".prettierrc.json")) ||
-  fs.existsSync(path.join(projectRoot, ".prettierrc.js")) ||
-  fs.existsSync(path.join(projectRoot, "prettier.config.js")) ||
-  pkg.prettier;
+function getChangedFiles(projectRoot, baseRef) {
+  const diffOutput = readGitOutput(projectRoot, [
+    "diff",
+    baseRef,
+    "--name-only",
+    "--diff-filter=ACMR",
+  ]);
+  const statusOutput = readGitOutput(projectRoot, ["status", "--porcelain"]);
 
-if ((hasBiome || hasPrettier) && touchedFiles.length > 0) {
-  log("Pillar 3/4: linter...");
-  try {
-    const cmdParts = pmX.split(" ");
-    if (hasBiome) {
-      const biomeArgs = [...cmdParts.slice(1), "biome", "check", ...touchedFiles];
-      if (pm === "bun") biomeArgs.unshift("--bun");
-      safeExec(cmdParts[0], biomeArgs, projectRoot);
-    } else if (hasPrettier) {
-      const prettierArgs = [...cmdParts.slice(1), "prettier", "--check", ...touchedFiles];
-      if (pm === "bun") prettierArgs.unshift("--bun");
-      safeExec(cmdParts[0], prettierArgs, projectRoot);
+  const diffFiles = diffOutput ? diffOutput.split(/\r?\n/) : [];
+  const statusFiles = statusOutput
+    ? statusOutput
+        .split(/\r?\n/)
+        .map((line) => line.slice(3).trim())
+        .filter(Boolean)
+    : [];
+
+  return [...new Set([...diffFiles, ...statusFiles])].filter((changedFile) =>
+    fs.existsSync(path.join(projectRoot, changedFile)),
+  );
+}
+
+function isJavaScriptOrTypeScriptFile(filePath) {
+  return /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(filePath);
+}
+
+function normalizePathForMatch(filePath) {
+  return filePath.replace(/\\/g, "/");
+}
+
+function matchesIgnorePattern(filePath, pattern) {
+  const normalizedFilePath = normalizePathForMatch(filePath);
+  const normalizedPattern = normalizePathForMatch(pattern);
+
+  if (normalizedPattern.endsWith("/**")) {
+    return normalizedFilePath.startsWith(normalizedPattern.slice(0, -3));
+  }
+
+  if (normalizedPattern.startsWith("**/")) {
+    return normalizedFilePath.endsWith(normalizedPattern.slice(3));
+  }
+
+  return (
+    normalizedFilePath === normalizedPattern ||
+    normalizedFilePath.startsWith(`${normalizedPattern}/`)
+  );
+}
+
+function filterIgnoredFiles(files, ignorePatterns) {
+  return files.filter(
+    (file) =>
+      !ignorePatterns.some((ignorePattern) =>
+        matchesIgnorePattern(file, ignorePattern),
+      ),
+  );
+}
+
+function detectFormatter(projectRoot) {
+  if (
+    fs.existsSync(path.join(projectRoot, "biome.json")) ||
+    fs.existsSync(path.join(projectRoot, "biome.jsonc"))
+  ) {
+    return "biome";
+  }
+
+  const prettierConfigFiles = [
+    ".prettierrc",
+    ".prettierrc.json",
+    ".prettierrc.js",
+    ".prettierrc.cjs",
+    ".prettierrc.mjs",
+    "prettier.config.js",
+    "prettier.config.cjs",
+    "prettier.config.mjs",
+  ];
+
+  if (
+    prettierConfigFiles.some((configFile) =>
+      fs.existsSync(path.join(projectRoot, configFile)),
+    )
+  ) {
+    return "prettier";
+  }
+
+  const packageJson = readJsonFile(path.join(projectRoot, "package.json"));
+
+  if (packageJson?.prettier) {
+    return "prettier";
+  }
+
+  return undefined;
+}
+
+function createSkippedCheck(name, reason, severity = "warning") {
+  return {
+    name,
+    status: "skipped",
+    severity,
+    command: null,
+    reason,
+    exitCode: null,
+    durationMs: 0,
+  };
+}
+
+function createCheckResult(name, checkResult) {
+  return {
+    name,
+    status: checkResult.status,
+    severity: checkResult.severity,
+    command: checkResult.command ?? null,
+    reason: checkResult.reason ?? null,
+    exitCode:
+      typeof checkResult.exitCode === "number" ? checkResult.exitCode : null,
+    durationMs: checkResult.durationMs ?? 0,
+    stdout: flags.has("--include-output")
+      ? (checkResult.stdout ?? "")
+      : undefined,
+    stderr: flags.has("--include-output")
+      ? (checkResult.stderr ?? "")
+      : undefined,
+  };
+}
+
+function runSemanticCheck(projectRoot, targetFiles, config, inherit) {
+  const enginePath = path.resolve(
+    __dirname,
+    "..",
+    "src",
+    "quality-engine",
+    "engine.cjs",
+  );
+
+  if (!fs.existsSync(enginePath)) {
+    return {
+      status: "failed",
+      severity: "blocker",
+      command: `node ${enginePath}`,
+      reason: "quality engine not found",
+      exitCode: EXIT_RUNTIME_ERROR,
+      durationMs: 0,
+    };
+  }
+
+  const executedCommand = executeCommand("node", [enginePath, ...targetFiles], {
+    cwd: projectRoot,
+    inherit,
+    env: {
+      RINDAMAN_WRITE_REPORT: config.writeReport ? "1" : "0",
+      RINDAMAN_REPORT_PATH: config.reportPath,
+    },
+  });
+
+  return {
+    status: executedCommand.result.status === 0 ? "passed" : "failed",
+    severity: "blocker",
+    command: executedCommand.command,
+    reason: null,
+    exitCode: executedCommand.result.status,
+    durationMs: executedCommand.durationMs,
+    stdout: executedCommand.result.stdout ?? "",
+    stderr: executedCommand.result.stderr ?? "",
+  };
+}
+
+function runTypeCheck(projectRoot, packageManager, inherit) {
+  return executePackageScript(
+    projectRoot,
+    packageManager,
+    "typecheck",
+    inherit,
+  );
+}
+
+function runSyntaxCheck(
+  projectRoot,
+  formatter,
+  targetFiles,
+  changedOnly,
+  inherit,
+) {
+  if (!formatter) {
+    return createSkippedCheck("syntax", "No Biome or Prettier config found");
+  }
+
+  if (formatter === "biome") {
+    return executeLocalBinary(
+      projectRoot,
+      "biome",
+      ["check", ...(changedOnly ? targetFiles : ["."])],
+      inherit,
+    );
+  }
+
+  return executeLocalBinary(
+    projectRoot,
+    "prettier",
+    ["--check", ...(changedOnly ? targetFiles : ["."])],
+    inherit,
+  );
+}
+
+function runHygieneCheck(projectRoot, inherit) {
+  return executeLocalBinary(projectRoot, "knip", [], inherit);
+}
+
+function getOverallStatus(checks, config) {
+  const hasFailedCheck = checks.some((check) => check.status === "failed");
+  const hasSkippedCheck = checks.some((check) => check.status === "skipped");
+
+  if (hasFailedCheck) {
+    return "failed";
+  }
+
+  if (config.strictWarnings && hasSkippedCheck) {
+    return "failed";
+  }
+
+  return "passed";
+}
+
+function getExitCodeForStatus(status, auditMode) {
+  if (auditMode) {
+    return EXIT_OK;
+  }
+
+  if (status === "failed") {
+    return EXIT_QUALITY_BLOCKER;
+  }
+
+  return EXIT_OK;
+}
+
+function writeJsonResult(result) {
+  console.log(JSON.stringify(result, null, 2));
+}
+
+function printHumanSummary(result) {
+  printSection("Summary");
+
+  for (const check of result.checks) {
+    const suffix = check.reason ? ` - ${check.reason}` : "";
+    const color =
+      check.status === "passed"
+        ? GREEN
+        : check.status === "failed"
+          ? RED
+          : YELLOW;
+    console.log(
+      colorize(color, `[Rindaman] ${check.name}: ${check.status}${suffix}`),
+    );
+  }
+
+  console.log(`[Rindaman] Status: ${result.status}`);
+
+  if (result.reportPath) {
+    console.log(`[Rindaman] Report: ${result.reportPath}`);
+  }
+}
+
+function runCheckCommand(auditMode) {
+  const projectRoot = findProjectRoot(process.cwd());
+  const config = applyFlagOverrides(readConfig(projectRoot));
+  const packageManager = detectPackageManager(projectRoot);
+  const baseRef = detectBaseRef(projectRoot, config);
+  const allChangedFiles = config.changedOnly
+    ? getChangedFiles(projectRoot, baseRef)
+    : [];
+  const changedFiles = filterIgnoredFiles(
+    allChangedFiles,
+    config.ignorePatterns,
+  );
+  const targetFiles = config.changedOnly
+    ? changedFiles.filter(isJavaScriptOrTypeScriptFile)
+    : [];
+  const inheritOutput = !jsonOutput;
+  const formatter = detectFormatter(projectRoot);
+
+  printSection(auditMode ? "Rindaman Audit" : "Rindaman Check");
+  print(`[Rindaman] Project root: ${projectRoot}`);
+  print(`[Rindaman] Package manager: ${packageManager}`);
+  print(`[Rindaman] Base ref: ${baseRef}`);
+  print(`[Rindaman] Changed files: ${changedFiles.length}`);
+
+  const checks = [];
+
+  if (config.checks.semantic) {
+    checks.push(
+      createCheckResult(
+        "semantic",
+        runSemanticCheck(projectRoot, targetFiles, config, inheritOutput),
+      ),
+    );
+  } else {
+    checks.push(createSkippedCheck("semantic", "Disabled by config", "info"));
+  }
+
+  if (config.checks.types) {
+    checks.push(
+      createCheckResult(
+        "types",
+        runTypeCheck(projectRoot, packageManager, inheritOutput),
+      ),
+    );
+  } else {
+    checks.push(createSkippedCheck("types", "Disabled by config", "info"));
+  }
+
+  if (config.checks.syntax) {
+    checks.push(
+      createCheckResult(
+        "syntax",
+        runSyntaxCheck(
+          projectRoot,
+          formatter,
+          targetFiles,
+          config.changedOnly,
+          inheritOutput,
+        ),
+      ),
+    );
+  } else {
+    checks.push(createSkippedCheck("syntax", "Disabled by config", "info"));
+  }
+
+  if (config.checks.hygiene) {
+    checks.push(
+      createCheckResult("hygiene", runHygieneCheck(projectRoot, inheritOutput)),
+    );
+  } else {
+    checks.push(createSkippedCheck("hygiene", "Disabled by config", "info"));
+  }
+
+  const status = getOverallStatus(checks, config);
+  const result = {
+    command: auditMode ? "audit" : "check",
+    status: auditMode && status === "failed" ? "audit_failed" : status,
+    projectRoot,
+    packageManager,
+    baseRef,
+    changedOnly: config.changedOnly,
+    changedFiles,
+    targetFiles,
+    formatter: formatter ?? null,
+    reportPath: config.writeReport
+      ? path.resolve(projectRoot, config.reportPath)
+      : null,
+    checks,
+    policy: {
+      strictWarnings: config.strictWarnings,
+      allowPackageInstall: config.allowPackageInstall,
+      writeReport: config.writeReport,
+      ignorePatterns: config.ignorePatterns,
+    },
+  };
+
+  if (jsonOutput) {
+    writeJsonResult(result);
+  } else {
+    printHumanSummary(result);
+  }
+
+  process.exit(getExitCodeForStatus(status, auditMode));
+}
+
+function runDoctorCommand() {
+  const projectRoot = findProjectRoot(process.cwd());
+  const config = applyFlagOverrides(readConfig(projectRoot));
+  const packageManager = detectPackageManager(projectRoot);
+  const packageJsonExists = fs.existsSync(
+    path.join(projectRoot, "package.json"),
+  );
+  const gitAvailable = Boolean(readGitOutput(projectRoot, ["--version"]));
+  const formatter = detectFormatter(projectRoot);
+
+  const checks = [
+    {
+      name: "node",
+      status: "passed",
+      detail: process.version,
+    },
+    {
+      name: "package_json",
+      status: packageJsonExists ? "passed" : "failed",
+    },
+    {
+      name: "git",
+      status: gitAvailable ? "passed" : "skipped",
+    },
+    {
+      name: "typecheck_script",
+      status:
+        executePackageScript(projectRoot, packageManager, "typecheck", false)
+          .status === "skipped"
+          ? "skipped"
+          : "passed",
+    },
+    {
+      name: "formatter_config",
+      status: formatter ? "passed" : "skipped",
+      detail: formatter ?? null,
+    },
+    {
+      name: "biome_binary",
+      status: fs.existsSync(getLocalBinaryPath(projectRoot, "biome"))
+        ? "passed"
+        : "skipped",
+    },
+    {
+      name: "prettier_binary",
+      status: fs.existsSync(getLocalBinaryPath(projectRoot, "prettier"))
+        ? "passed"
+        : "skipped",
+    },
+    {
+      name: "knip_binary",
+      status: fs.existsSync(getLocalBinaryPath(projectRoot, "knip"))
+        ? "passed"
+        : "skipped",
+    },
+  ];
+
+  const status = checks.some((check) => check.status === "failed")
+    ? "failed"
+    : "passed";
+  const result = {
+    command: "doctor",
+    status,
+    projectRoot,
+    packageManager,
+    config,
+    checks,
+  };
+
+  if (jsonOutput) {
+    writeJsonResult(result);
+  } else {
+    printSection("Rindaman Doctor");
+
+    for (const check of checks) {
+      const suffix = check.detail ? ` - ${check.detail}` : "";
+      const color =
+        check.status === "passed"
+          ? GREEN
+          : check.status === "failed"
+            ? RED
+            : YELLOW;
+      console.log(
+        colorize(color, `[Rindaman] ${check.name}: ${check.status}${suffix}`),
+      );
     }
-    success("Pillar 3/4: linter passed.");
-  } catch (e) {
-    error("Pillar 3/4 failed: lint/format errors.");
-    process.exit(isAuditMode ? 0 : 1);
   }
-} else if (!hasBiome && !hasPrettier) {
-  log("No linter (biome/prettier) config found - skipping pillar 3.");
-} else if (touchedFiles.length === 0) {
-  log("No touched files - skipping linter.");
+
+  process.exit(status === "passed" ? EXIT_OK : EXIT_SETUP_INCOMPLETE);
 }
 
-success("All 4 pillars passed!");
-log("Code Quality Verification finished.");
+function printHelp() {
+  console.log(
+    [
+      "Rindaman - OpenCode strict quality governor",
+      "",
+      "Usage:",
+      "  rindaman check [--json] [--include-output] [--strict] [--changed-only] [--all] [--report]",
+      "  rindaman audit [--json] [--include-output]",
+      "  rindaman doctor [--json]",
+      "  rindaman help",
+      "",
+      "Options:",
+      "  --json             Print structured JSON output",
+      "  --include-output   Include captured stdout/stderr in JSON output",
+      "  --strict           Treat skipped checks as failures",
+      "  --changed-only     Run file-scoped checks against changed JS/TS files",
+      "  --all              Run broad checks where supported",
+      "  --base <ref>       Compare changed files against a specific base ref",
+      "  --report           Write .rindaman/report.md through the semantic engine",
+      "  --report-path <p>  Write report to a custom path when --report is enabled",
+      "",
+      "Exit codes:",
+      `  ${EXIT_OK} passed or audit completed`,
+      `  ${EXIT_QUALITY_BLOCKER} quality blockers found`,
+      `  ${EXIT_RUNTIME_ERROR} runtime error`,
+      `  ${EXIT_SETUP_INCOMPLETE} setup incomplete`,
+      `  ${EXIT_UNSAFE_BLOCKED} unsafe operation blocked`,
+    ].join("\n"),
+  );
+}
+
+try {
+  if (command === "help" || flags.has("--help")) {
+    printHelp();
+    process.exit(EXIT_OK);
+  }
+
+  if (command === "check") {
+    runCheckCommand(false);
+  }
+
+  if (command === "audit") {
+    runCheckCommand(true);
+  }
+
+  if (command === "doctor") {
+    runDoctorCommand();
+  }
+
+  printError(`Unknown command: ${command}`);
+  printHelp();
+  process.exit(EXIT_RUNTIME_ERROR);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (jsonOutput) {
+    writeJsonResult({
+      command,
+      status: "error",
+      error: message,
+    });
+  } else {
+    printError(message);
+  }
+
+  process.exit(EXIT_RUNTIME_ERROR);
+}
