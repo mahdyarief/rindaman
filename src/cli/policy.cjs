@@ -44,13 +44,23 @@ function createDebtResult(config, changedOnly, targetFiles, checks, baseline) {
 }
 
 function getOverallStatus(checks, config, debt) {
+  const securityCheck = checks.find((check) => check.name === "security");
+  const securitySummary = securityCheck?.summary ?? {
+    moderate: 0,
+    high: 0,
+    critical: 0,
+  };
+  const hasBlockingSecurity =
+    (config.security.failOnModerate && securitySummary.moderate > 0) ||
+    (config.security.failOnHigh && securitySummary.high > 0) ||
+    (config.security.failOnCritical && securitySummary.critical > 0);
   const hasBlockingDebt =
     debt.introducedChecks.length > 0 ||
     debt.unknownChecks.length > 0 ||
     (config.failOnExistingDebt && debt.existingChecks.length > 0);
   const hasSkippedCheck = checks.some((check) => check.status === "skipped");
 
-  if (hasBlockingDebt) {
+  if (hasBlockingDebt || hasBlockingSecurity) {
     return "failed";
   }
 

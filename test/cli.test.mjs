@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -121,7 +121,7 @@ test("CLI check supports fixture-backed JSON output", () => {
   assert.deepEqual(output.baseline.checkNames, []);
   assert.deepEqual(
     output.checks.map((check) => check.status),
-    ["skipped", "skipped", "skipped", "skipped"],
+    ["skipped", "skipped", "skipped", "skipped", "skipped"],
   );
 });
 
@@ -156,6 +156,15 @@ test("CLI check reports typecheck script failures", () => {
 });
 
 test("CLI check reports formatter failures", () => {
+  chmodSync(
+    resolve(
+      formatterFailureFixtureDirectory,
+      "node_modules",
+      ".bin",
+      "prettier",
+    ),
+    0o755,
+  );
   const result = runCli(
     ["check", "--json", "--all"],
     formatterFailureFixtureDirectory,
@@ -426,6 +435,15 @@ test("CLI baseline writes workspace-local baselines", () => {
 });
 
 test("CLI audit reports unknown debt without failing", () => {
+  chmodSync(
+    resolve(
+      formatterFailureFixtureDirectory,
+      "node_modules",
+      ".bin",
+      "prettier",
+    ),
+    0o755,
+  );
   const result = runCli(
     ["audit", "--json", "--all"],
     formatterFailureFixtureDirectory,
@@ -463,6 +481,155 @@ test("CLI check does not crash outside a git repo", () => {
   assert.equal(output.command, "check");
   assert.equal(output.status, "passed");
   assert.ok(Array.isArray(output.changedFiles));
+});
+
+test("CLI security check skips when no lockfile exists", () => {
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-security-skip-fixture",
+    {
+      rindaman: {
+        checks: {
+          semantic: false,
+          types: false,
+          syntax: false,
+          hygiene: false,
+          security: true,
+        },
+      },
+    },
+  );
+  const result = runCli(["check", "--json", "--all"], fixtureDirectory);
+
+  assert.equal(result.status, 0);
+  const output = parseJsonOutput(result);
+  const securityCheck = findCheck(output, "security");
+
+  assert.equal(securityCheck.status, "skipped");
+  assert.match(securityCheck.reason, /lockfile not found/i);
+});
+
+test("CLI security check summarizes severity counts", () => {
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-security-summary-fixture",
+    {
+      rindaman: {
+        checks: {
+          semantic: false,
+          types: false,
+          syntax: false,
+          hygiene: false,
+          security: true,
+        },
+      },
+    },
+  );
+  writeFileSync(resolve(fixtureDirectory, "package-lock.json"), "{}\n");
+  writeFileSync(
+    resolve(fixtureDirectory, "npm.cmd"),
+    [
+      "@echo off",
+      'if "%1"=="audit" (',
+      '  if "%2"=="--json" (',
+      '    <nul set /p={"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":2,"high":1,"critical":0}}}',
+      "    exit /b 1",
+      "  )",
+      ")",
+      "exit /b 0",
+      "",
+    ].join("\r\n"),
+  );
+  const result = runCli(["check", "--json", "--all"], fixtureDirectory);
+
+  const output = parseJsonOutput(result);
+  const securityCheck = findCheck(output, "security");
+
+  assert.equal(securityCheck.status, "passed");
+  assert.deepEqual(securityCheck.summary, {
+    moderate: 2,
+    high: 1,
+    critical: 0,
+  });
+});
+
+test("CLI security check does not block on moderate-only by default", () => {
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-security-moderate-fixture",
+    {
+      rindaman: {
+        checks: {
+          semantic: false,
+          types: false,
+          syntax: false,
+          hygiene: false,
+          security: true,
+        },
+      },
+    },
+  );
+  writeFileSync(resolve(fixtureDirectory, "package-lock.json"), "{}\n");
+  writeFileSync(
+    resolve(fixtureDirectory, "npm.cmd"),
+    [
+      "@echo off",
+      'if "%1"=="audit" (',
+      '  if "%2"=="--json" (',
+      '    <nul set /p={"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":2,"high":0,"critical":0}}}',
+      "    exit /b 1",
+      "  )",
+      ")",
+      "exit /b 0",
+      "",
+    ].join("\r\n"),
+  );
+
+  const result = runCli(["check", "--json", "--all"], fixtureDirectory);
+  const output = parseJsonOutput(result);
+
+  assert.equal(result.status, 0);
+  assert.equal(output.status, "passed");
+});
+
+test("CLI security config can block on moderate vulnerabilities", () => {
+  const fixtureDirectory = writeTemporaryJsonFixture(
+    "rindaman-security-fail-moderate-fixture",
+    {
+      rindaman: {
+        checks: {
+          semantic: false,
+          types: false,
+          syntax: false,
+          hygiene: false,
+          security: true,
+        },
+        security: {
+          failOnModerate: true,
+          failOnHigh: true,
+          failOnCritical: true,
+        },
+      },
+    },
+  );
+  writeFileSync(resolve(fixtureDirectory, "package-lock.json"), "{}\n");
+  writeFileSync(
+    resolve(fixtureDirectory, "npm.cmd"),
+    [
+      "@echo off",
+      'if "%1"=="audit" (',
+      '  if "%2"=="--json" (',
+      '    <nul set /p={"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":1,"high":0,"critical":0}}}',
+      "    exit /b 1",
+      "  )",
+      ")",
+      "exit /b 0",
+      "",
+    ].join("\r\n"),
+  );
+
+  const result = runCli(["check", "--json", "--all"], fixtureDirectory);
+
+  assert.equal(result.status, 1);
+  const output = parseJsonOutput(result);
+  assert.equal(output.status, "failed");
 });
 
 test("CLI check treats skipped local tools as warnings by default", () => {

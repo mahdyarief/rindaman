@@ -349,7 +349,77 @@ function createCheckResult(name, checkResult, flags) {
     stderr: flags.has("--include-output")
       ? (checkResult.stderr ?? "")
       : undefined,
+    summary: checkResult.summary ?? undefined,
   };
+}
+
+function hasSupportedAuditLockfile(projectRoot) {
+  return fs.existsSync(path.join(projectRoot, "package-lock.json"));
+}
+
+function readAuditSummary(auditOutput) {
+  const parsedAudit = JSON.parse(auditOutput);
+  const vulnerabilities = parsedAudit?.metadata?.vulnerabilities ?? {};
+
+  return {
+    moderate: Number(vulnerabilities.moderate ?? 0),
+    high: Number(vulnerabilities.high ?? 0),
+    critical: Number(vulnerabilities.critical ?? 0),
+  };
+}
+
+function runSecurityCheck(projectRoot, inherit) {
+  if (!hasSupportedAuditLockfile(projectRoot)) {
+    return {
+      status: "skipped",
+      severity: "warning",
+      command: "npm audit --json",
+      reason: "lockfile not found",
+      exitCode: null,
+      durationMs: 0,
+      summary: {
+        moderate: 0,
+        high: 0,
+        critical: 0,
+      },
+    };
+  }
+
+  const executedCommand = executeCommand("npm", ["audit", "--json"], {
+    cwd: projectRoot,
+    inherit,
+  });
+
+  try {
+    const summary = readAuditSummary(executedCommand.result.stdout ?? "{}");
+    return {
+      status: "passed",
+      severity: "blocker",
+      command: executedCommand.command,
+      reason: null,
+      exitCode: executedCommand.result.status,
+      durationMs: executedCommand.durationMs,
+      stdout: executedCommand.result.stdout ?? "",
+      stderr: executedCommand.result.stderr ?? "",
+      summary,
+    };
+  } catch (_error) {
+    return {
+      status: "failed",
+      severity: "blocker",
+      command: executedCommand.command,
+      reason: "invalid audit output",
+      exitCode: executedCommand.result.status,
+      durationMs: executedCommand.durationMs,
+      stdout: executedCommand.result.stdout ?? "",
+      stderr: executedCommand.result.stderr ?? "",
+      summary: {
+        moderate: 0,
+        high: 0,
+        critical: 0,
+      },
+    };
+  }
 }
 
 function runSemanticCheck(projectRoot, targetFiles, config, inherit) {
@@ -527,6 +597,18 @@ function createCheckCommandResult(
     checks.push(createSkippedCheck("hygiene", "Disabled by config", "info"));
   }
 
+  if (config.checks.security) {
+    checks.push(
+      createCheckResult(
+        "security",
+        runSecurityCheck(executionRoot, inheritOutput),
+        cliArgs.flags,
+      ),
+    );
+  } else {
+    checks.push(createSkippedCheck("security", "Disabled by config", "info"));
+  }
+
   const baseline = readBaselineFile(executionRoot, config);
   const debt = createDebtResult(
     config,
@@ -624,6 +706,7 @@ module.exports = {
   detectFormatter,
   executePackageScript,
   getLocalBinaryPath,
+  runSecurityCheck,
   createCheckCommandResult,
   createWorkspaceAggregateResult,
 };

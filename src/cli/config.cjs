@@ -21,12 +21,18 @@ function createDefaultConfig() {
     failOnExistingDebt: false,
     baselinePath: ".rindaman/baseline.json",
     useBaseline: true,
+    security: {
+      failOnModerate: false,
+      failOnHigh: true,
+      failOnCritical: true,
+    },
     ignorePatterns: ["dist/**", "coverage/**", "node_modules/**", ".git/**"],
     checks: {
       semantic: true,
       types: true,
       syntax: true,
       hygiene: true,
+      security: true,
     },
   };
 }
@@ -46,6 +52,11 @@ function readConfig(projectRoot) {
       ...defaultConfig.checks,
       ...(packageConfig.checks ?? {}),
       ...(fileConfig.checks ?? {}),
+    },
+    security: {
+      ...defaultConfig.security,
+      ...(packageConfig.security ?? {}),
+      ...(fileConfig.security ?? {}),
     },
     ignorePatterns:
       fileConfig.ignorePatterns ??
@@ -74,6 +85,11 @@ function readWorkspaceConfig(projectRoot, workspaceRoot) {
       ...rootConfig.checks,
       ...(workspacePackageConfig.checks ?? {}),
       ...(workspaceFileConfig.checks ?? {}),
+    },
+    security: {
+      ...rootConfig.security,
+      ...(workspacePackageConfig.security ?? {}),
+      ...(workspaceFileConfig.security ?? {}),
     },
     ignorePatterns:
       workspaceFileConfig.ignorePatterns ??

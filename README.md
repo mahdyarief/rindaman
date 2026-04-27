@@ -147,6 +147,27 @@ Use `rindaman baseline --json` to record the current failed check names in `.rin
 
 When baseline use is enabled, failed checks listed in the baseline are classified as existing debt. Existing debt does not block by default; pass `--fail-existing` to block it.
 
+### Security audit
+
+Rindaman can run `npm audit --json` as a read-only security check when `package-lock.json` is present.
+
+By default, high and critical vulnerabilities block `check`, while moderate vulnerabilities are reported without blocking. The `security` check includes a `summary` object with `moderate`, `high`, and `critical` counts.
+
+Config examples can include:
+
+```json
+{
+  "checks": {
+    "security": true
+  },
+  "security": {
+    "failOnModerate": false,
+    "failOnHigh": true,
+    "failOnCritical": true
+  }
+}
+```
+
 ### Monorepo workspaces
 
 Use `--workspace <name-or-path>` to run against one workspace, or `--workspaces` to run every detected workspace.
