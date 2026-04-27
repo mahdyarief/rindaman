@@ -291,7 +291,8 @@ test("rindaman_status exposes final response gate metadata", async () => {
   assert.equal(status.lastCheck.status, "not_run");
   assert.equal(status.lastCheck.command, null);
   assert.equal(status.lastCheck.checkedAt, null);
-  assert.equal(typeof status.seniorFullstack.active, "boolean");
+  assert.equal(typeof status.mode, "string");
+  assert.equal(typeof status.seniorEngineer.active, "boolean");
   assert.equal(typeof status.finalResponse.allowed, "boolean");
   assert.equal(typeof status.finalResponse.reason, "string");
 });
@@ -309,8 +310,8 @@ test("rindaman_status reports senior fullstack activation state", async () => {
   );
   const status = await readStatus(hooks, context);
 
-  assert.equal(typeof status.seniorFullstack.active, "boolean");
-  assert.equal(status.seniorFullstack.active, true);
+  assert.equal(typeof status.seniorEngineer.active, "boolean");
+  assert.equal(status.seniorEngineer.active, true);
 });
 
 test("rindaman_status reports mode and senior engineer semantics", async () => {

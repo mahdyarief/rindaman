@@ -101,10 +101,12 @@ Rindaman now includes first-class OpenCode tools:
 `rindaman_status` includes mode and gate metadata so the assistant can avoid false completion claims and explain why the senior layer is active:
 
 - `mode`
-- `seniorFullstack.active`
 - `seniorEngineer.active`
+- `seniorEngineer.effectiveMode`
 - `seniorEngineer.reason`
 - `seniorEngineer.intent`
+- `seniorEngineer.intentSource`
+- `seniorEngineer.matchedSignals`
 - `finalResponse.allowed`
 - `finalResponse.reason`
 
@@ -124,13 +126,13 @@ Example status shape:
     "checkedAt": "2026-04-26T00:00:00.000Z",
     "exitCode": 0
   },
-  "seniorFullstack": {
-    "active": true
-  },
   "seniorEngineer": {
     "active": true,
+    "effectiveMode": "auto",
     "reason": "implementation intent detected",
-    "intent": "implementation"
+    "intent": "implementation",
+    "intentSource": "auto-signals",
+    "matchedSignals": ["implement", "auth", "api"]
   },
   "finalResponse": {
     "allowed": true,

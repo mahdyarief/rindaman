@@ -109,11 +109,9 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
                 checkedAt: sessionState.lastCheckAt ?? null,
                 exitCode: sessionState.lastCheckExitCode ?? null,
             },
-            seniorFullstack: {
-                active: seniorFullstackActive,
-            },
             seniorEngineer: {
                 active: seniorEngineerMetadata.active,
+                effectiveMode,
                 reason: seniorEngineerMetadata.reason,
                 intent: seniorEngineerMetadata.intent,
                 intentSource: seniorEngineerMetadata.intentSource,
