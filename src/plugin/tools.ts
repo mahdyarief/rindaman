@@ -62,7 +62,7 @@ const getNextAction = (
   checkFreshness: CheckFreshness,
   finalResponse: FinalResponseGate,
 ): NextAction => {
-  if (verificationRequired && checkFreshness === "not_run") {
+  if (checkFreshness === "not_run") {
     return {
       command: "rindaman_check",
       reason: "verification has not been run for this session",

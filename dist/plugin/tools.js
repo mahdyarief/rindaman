@@ -23,7 +23,7 @@ const getCheckFreshness = (sessionState) => {
     return sessionState.dirtySinceCheck ? "stale" : "fresh";
 };
 const getNextAction = (verificationRequired, checkFreshness, finalResponse) => {
-    if (verificationRequired && checkFreshness === "not_run") {
+    if (checkFreshness === "not_run") {
         return {
             command: "rindaman_check",
             reason: "verification has not been run for this session",
