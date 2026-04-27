@@ -89,14 +89,13 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
         const seniorFullstackActive = dependencies.getSeniorFullstackActive(context.sessionID);
         const sessionMode = dependencies.getSessionMode(context.sessionID);
         const effectiveMode = sessionMode ?? resolvedOptions.mode;
-        const seniorFullstackIntent = seniorFullstackActive ? "implementation" : "none";
-        const seniorFullstackReason = effectiveMode === "core"
-            ? "core mode forced"
-            : effectiveMode === "senior"
-                ? "senior mode forced"
-                : seniorFullstackActive
-                    ? "implementation intent detected"
-                    : "auto mode with no implementation intent";
+        const seniorEngineerMetadata = dependencies.getSeniorEngineerMetadata(context.sessionID) ?? {
+            active: seniorFullstackActive,
+            intent: "none",
+            reason: "no activation analysis recorded",
+            intentSource: "none",
+            matchedSignals: [],
+        };
         return JSON.stringify({
             enabled: resolvedOptions.enabled,
             strictResponses: resolvedOptions.strictResponses,
@@ -114,9 +113,11 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
                 active: seniorFullstackActive,
             },
             seniorEngineer: {
-                active: seniorFullstackActive,
-                reason: seniorFullstackReason,
-                intent: seniorFullstackIntent,
+                active: seniorEngineerMetadata.active,
+                reason: seniorEngineerMetadata.reason,
+                intent: seniorEngineerMetadata.intent,
+                intentSource: seniorEngineerMetadata.intentSource,
+                matchedSignals: seniorEngineerMetadata.matchedSignals,
             },
             finalResponse,
         }, null, 2);

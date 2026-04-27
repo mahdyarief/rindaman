@@ -170,6 +170,15 @@ test("implementation requests inject senior fullstack guidance", async () => {
   assert.equal(getSeniorFullstackRuleMessages(messages).length, 1);
 });
 
+test("generic implementation request without engineering context stays core-only", async () => {
+  const messages = await runTransform([
+    createMessage("user", "Implement the dashboard filter"),
+  ]);
+
+  assert.equal(getRindamanRuleMessages(messages).length, 1);
+  assert.equal(getSeniorFullstackRuleMessages(messages).length, 0);
+});
+
 test("config core mode suppresses senior guidance", async () => {
   const hooks = await server({}, { mode: "core" });
   const output = createOutput([
@@ -258,6 +267,15 @@ test("release or status requests do not inject senior fullstack guidance", async
   assert.equal(getSeniorFullstackRuleMessages(messages).length, 0);
 });
 
+test("review request mentioning api or auth stays core-only", async () => {
+  const messages = await runTransform([
+    createMessage("user", "Review the auth API schema and tell me the risks"),
+  ]);
+
+  assert.equal(getRindamanRuleMessages(messages).length, 1);
+  assert.equal(getSeniorFullstackRuleMessages(messages).length, 0);
+});
+
 test("exposes Rindaman quality tools", async () => {
   const hooks = await server();
 
@@ -312,6 +330,25 @@ test("rindaman_status reports mode and senior engineer semantics", async () => {
   assert.equal(typeof status.seniorEngineer.active, "boolean");
   assert.equal(typeof status.seniorEngineer.reason, "string");
   assert.equal(typeof status.seniorEngineer.intent, "string");
+  assert.equal(typeof status.seniorEngineer.intentSource, "string");
+  assert.ok(Array.isArray(status.seniorEngineer.matchedSignals));
+});
+
+test("status reports matched signals and intent source", async () => {
+  const hooks = await server({}, { mode: "auto" });
+  const context = createToolContext();
+  const output = createOutput([
+    createMessage("user", "Implement an auth API contract for the dashboard"),
+  ]);
+
+  await hooks["experimental.chat.messages.transform"](
+    { sessionID: context.sessionID },
+    output,
+  );
+  const status = await readStatus(hooks, context);
+
+  assert.ok(Array.isArray(status.seniorEngineer.matchedSignals));
+  assert.equal(typeof status.seniorEngineer.intentSource, "string");
 });
 
 test("dirty session requires verification before final response", async () => {

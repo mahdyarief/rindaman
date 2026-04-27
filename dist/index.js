@@ -1,11 +1,12 @@
 import { createFinalResponseGate, isVerificationRequired } from "./plugin/final-response-gate.js";
-import { getSeniorFullstackEnabled } from "./plugin/intent.js";
+import { analyzeSeniorFullstackActivation, } from "./plugin/intent.js";
 import { resolvePluginOptions } from "./plugin/options.js";
 import { createRindamanRuleMessage, createSeniorFullstackRuleMessage, getMessageRole, getMessageText, isRindamanRuleMessage, isSeniorFullstackRuleMessage, } from "./plugin/rule-messages.js";
 import { getSessionMode, getSessionState, sessionEnabledStates, sessionSeniorFullstackStates, setSessionMode, } from "./plugin/session-state.js";
 import { createRindamanCheckTool, createRindamanStatusTool } from "./plugin/tools.js";
 import { getRindamanEnabled, getRindamanModeOverride, getRindamanToggle, } from "./plugin/toggles.js";
 const getEffectiveMode = (configuredMode, sessionMode) => sessionMode ?? configuredMode;
+const sessionSeniorEngineerMetadata = new Map();
 export const server = async (_input, options) => {
     const resolvedOptions = resolvePluginOptions(options);
     return {
@@ -16,6 +17,7 @@ export const server = async (_input, options) => {
                 isVerificationRequired,
                 getSeniorFullstackActive: (sessionID) => sessionSeniorFullstackStates.get(sessionID) ?? false,
                 getSessionMode,
+                getSeniorEngineerMetadata: (sessionID) => sessionSeniorEngineerMetadata.get(sessionID),
             }),
             rindaman_status: createRindamanStatusTool(resolvedOptions, {
                 getSessionState,
@@ -23,6 +25,7 @@ export const server = async (_input, options) => {
                 isVerificationRequired,
                 getSeniorFullstackActive: (sessionID) => sessionSeniorFullstackStates.get(sessionID) ?? false,
                 getSessionMode,
+                getSeniorEngineerMetadata: (sessionID) => sessionSeniorEngineerMetadata.get(sessionID),
             }),
         },
         "chat.message": async (input, output) => {
@@ -55,7 +58,7 @@ export const server = async (_input, options) => {
             }
             const messagesWithoutRindamanRules = transformOutput.messages.filter((message) => !isRindamanRuleMessage(message) && !isSeniorFullstackRuleMessage(message));
             const enabled = resolvedOptions.enabled && getRindamanEnabled(messagesWithoutRindamanRules, getMessageRole, getMessageText);
-            const seniorFullstackEnabled = enabled && getSeniorFullstackEnabled(messagesWithoutRindamanRules, getMessageRole, getMessageText);
+            const activation = analyzeSeniorFullstackActivation(messagesWithoutRindamanRules, getMessageRole, getMessageText);
             const transformSessionID = typeof _input.sessionID === "string"
                 ? _input.sessionID
                 : undefined;
@@ -65,9 +68,23 @@ export const server = async (_input, options) => {
                 ? enabled
                 : effectiveMode === "core"
                     ? false
-                    : seniorFullstackEnabled;
+                    : enabled && activation.active;
             if (transformSessionID) {
                 sessionSeniorFullstackStates.set(transformSessionID, effectiveSeniorFullstackEnabled);
+                sessionSeniorEngineerMetadata.set(transformSessionID, {
+                    ...activation,
+                    active: effectiveSeniorFullstackEnabled,
+                    intentSource: effectiveMode === "senior"
+                        ? "forced-mode"
+                        : effectiveMode === "core"
+                            ? "forced-mode"
+                            : activation.intentSource,
+                    reason: effectiveMode === "senior"
+                        ? "senior mode forced"
+                        : effectiveMode === "core"
+                            ? "core mode forced"
+                            : activation.reason,
+                });
             }
             transformOutput.messages = enabled
                 ? [

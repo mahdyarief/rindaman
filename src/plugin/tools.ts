@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { tool } from "@opencode-ai/plugin"
 
 import type { RindamanMode, RindamanResolvedOptions } from "./options.js"
+import type { SeniorEngineerActivation } from "./intent.js"
 import type { FinalResponseGate } from "./final-response-gate.js"
 import type { SessionQualityState } from "./session-state.js"
 
@@ -39,6 +40,7 @@ type ToolDependencies = {
   ) => boolean
   getSeniorFullstackActive: (sessionID: string) => boolean
   getSessionMode: (sessionID: string) => RindamanMode | undefined
+  getSeniorEngineerMetadata: (sessionID: string) => SeniorEngineerActivation | undefined
 }
 
 export const createRindamanCheckTool = (dependencies: ToolDependencies) =>
@@ -142,15 +144,13 @@ export const createRindamanStatusTool = (
       )
       const sessionMode = dependencies.getSessionMode(context.sessionID)
       const effectiveMode = sessionMode ?? resolvedOptions.mode
-      const seniorFullstackIntent = seniorFullstackActive ? "implementation" : "none"
-      const seniorFullstackReason =
-        effectiveMode === "core"
-          ? "core mode forced"
-          : effectiveMode === "senior"
-            ? "senior mode forced"
-            : seniorFullstackActive
-              ? "implementation intent detected"
-              : "auto mode with no implementation intent"
+      const seniorEngineerMetadata = dependencies.getSeniorEngineerMetadata(context.sessionID) ?? {
+        active: seniorFullstackActive,
+        intent: "none",
+        reason: "no activation analysis recorded",
+        intentSource: "none",
+        matchedSignals: [],
+      }
 
       return JSON.stringify(
         {
@@ -170,9 +170,11 @@ export const createRindamanStatusTool = (
             active: seniorFullstackActive,
           },
           seniorEngineer: {
-            active: seniorFullstackActive,
-            reason: seniorFullstackReason,
-            intent: seniorFullstackIntent,
+            active: seniorEngineerMetadata.active,
+            reason: seniorEngineerMetadata.reason,
+            intent: seniorEngineerMetadata.intent,
+            intentSource: seniorEngineerMetadata.intentSource,
+            matchedSignals: seniorEngineerMetadata.matchedSignals,
           },
           finalResponse,
         },

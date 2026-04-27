@@ -1,4 +1,5 @@
 import type { RindamanMode, RindamanResolvedOptions } from "./options.js";
+import type { SeniorEngineerActivation } from "./intent.js";
 import type { FinalResponseGate } from "./final-response-gate.js";
 import type { SessionQualityState } from "./session-state.js";
 type ToolDependencies = {
@@ -7,6 +8,7 @@ type ToolDependencies = {
     isVerificationRequired: (resolvedOptions: RindamanResolvedOptions, sessionState: SessionQualityState) => boolean;
     getSeniorFullstackActive: (sessionID: string) => boolean;
     getSessionMode: (sessionID: string) => RindamanMode | undefined;
+    getSeniorEngineerMetadata: (sessionID: string) => SeniorEngineerActivation | undefined;
 };
 export declare const createRindamanCheckTool: (dependencies: ToolDependencies) => {
     description: string;

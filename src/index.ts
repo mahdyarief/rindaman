@@ -1,7 +1,10 @@
 import type { Plugin } from "@opencode-ai/plugin"
 
 import { createFinalResponseGate, isVerificationRequired } from "./plugin/final-response-gate.js"
-import { getSeniorFullstackEnabled } from "./plugin/intent.js"
+import {
+  analyzeSeniorFullstackActivation,
+  type SeniorEngineerActivation,
+} from "./plugin/intent.js"
 import { resolvePluginOptions, type RindamanMode } from "./plugin/options.js"
 import {
   createRindamanRuleMessage,
@@ -31,6 +34,8 @@ const getEffectiveMode = (
   sessionMode: RindamanMode | undefined,
 ) => sessionMode ?? configuredMode
 
+const sessionSeniorEngineerMetadata = new Map<string, SeniorEngineerActivation>()
+
 export const server: Plugin = async (_input, options) => {
   const resolvedOptions = resolvePluginOptions(options)
 
@@ -43,6 +48,8 @@ export const server: Plugin = async (_input, options) => {
         getSeniorFullstackActive: (sessionID) =>
           sessionSeniorFullstackStates.get(sessionID) ?? false,
         getSessionMode,
+        getSeniorEngineerMetadata: (sessionID) =>
+          sessionSeniorEngineerMetadata.get(sessionID),
       }),
       rindaman_status: createRindamanStatusTool(resolvedOptions, {
         getSessionState,
@@ -51,6 +58,8 @@ export const server: Plugin = async (_input, options) => {
         getSeniorFullstackActive: (sessionID) =>
           sessionSeniorFullstackStates.get(sessionID) ?? false,
         getSessionMode,
+        getSeniorEngineerMetadata: (sessionID) =>
+          sessionSeniorEngineerMetadata.get(sessionID),
       }),
     },
     "chat.message": async (input, output) => {
@@ -97,7 +106,7 @@ export const server: Plugin = async (_input, options) => {
         getMessageRole,
         getMessageText,
       )
-      const seniorFullstackEnabled = enabled && getSeniorFullstackEnabled(
+      const activation = analyzeSeniorFullstackActivation(
         messagesWithoutRindamanRules,
         getMessageRole,
         getMessageText,
@@ -114,10 +123,26 @@ export const server: Plugin = async (_input, options) => {
           ? enabled
           : effectiveMode === "core"
             ? false
-            : seniorFullstackEnabled
+            : enabled && activation.active
 
       if (transformSessionID) {
         sessionSeniorFullstackStates.set(transformSessionID, effectiveSeniorFullstackEnabled)
+        sessionSeniorEngineerMetadata.set(transformSessionID, {
+          ...activation,
+          active: effectiveSeniorFullstackEnabled,
+          intentSource:
+            effectiveMode === "senior"
+              ? "forced-mode"
+              : effectiveMode === "core"
+                ? "forced-mode"
+                : activation.intentSource,
+          reason:
+            effectiveMode === "senior"
+              ? "senior mode forced"
+              : effectiveMode === "core"
+                ? "core mode forced"
+                : activation.reason,
+        })
       }
 
       transformOutput.messages = enabled
