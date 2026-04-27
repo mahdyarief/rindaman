@@ -293,7 +293,6 @@ Use Rindaman from GitHub exactly like your strict-mode setup:
 ```json
 {
   "plugin": [
-    "superpowers@git+https://github.com/obra/superpowers.git",
     "rindaman@git+https://github.com/mahdyarief/rindaman.git"
   ]
 }
@@ -308,7 +307,6 @@ Add Rindaman to your OpenCode config `plugin` list using the GitHub URL:
 ```json
 {
   "plugin": [
-    "superpowers@git+https://github.com/obra/superpowers.git",
     "rindaman@git+https://github.com/mahdyarief/rindaman.git"
   ]
 }

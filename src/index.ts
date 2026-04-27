@@ -240,7 +240,7 @@ const readChangedFiles = (directory: string) => {
 
   return gitStatus.stdout
     .split(/\r?\n/)
-    .map((line) => line.slice(3).trim())
+    .map((line: string) => line.slice(3).trim())
     .filter(Boolean);
 };
 

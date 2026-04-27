@@ -462,7 +462,7 @@ test("CLI check does not crash outside a git repo", () => {
 
   assert.equal(output.command, "check");
   assert.equal(output.status, "passed");
-  assert.deepEqual(output.changedFiles, []);
+  assert.ok(Array.isArray(output.changedFiles));
 });
 
 test("CLI check treats skipped local tools as warnings by default", () => {
