@@ -2,14 +2,26 @@
 
 OpenCode plugin that merges strict response mode with lifecycle code quality management.
 
-## Two-Layer Model
+## What It Is
+
+Rindaman is an AI engineering operating layer for OpenCode that combines:
+
+- governance and verification
+- implementation guidance
+- review guidance
+- CLI-backed code quality and dependency checks
+
+For the canonical contract, see `docs/product-contract.md`.
+
+## Layers
 
 Rindaman combines:
 
 - **Core** - strict response mode, lifecycle verification, and quality governance
-- **Senior Fullstack** - optional framework-agnostic web-product engineering guidance for implementation-oriented tasks
+- **Senior Engineer** - optional framework-agnostic engineering guidance for implementation-oriented tasks
+- **Reviewer** - optional findings-first review guidance
 
-The Senior Fullstack layer activates automatically for implementation-oriented requests and stays quiet for pure verification, status, or release tasks.
+The secondary layer is mutually exclusive: either none, Senior Engineer, or Reviewer.
 
 Rindaman combines the original `strict-mode` and `quality-check` concepts into a single plugin with layered behavior.
 
@@ -43,12 +55,13 @@ Rindaman is enabled by default.
 - `normal mode`
 - `strict mode`
 
-### Senior Engineer Modes
+## Modes
 
 Rindaman supports three senior-guidance modes:
 
 - `core` - governance only
 - `senior` - governance plus senior fullstack guidance
+- `reviewer` - governance plus reviewer guidance
 - `auto` - governance always, senior guidance only for implementation-oriented requests
 
 Session overrides:
@@ -65,8 +78,11 @@ Precedence:
 
 Examples:
 
-- `Implement an auth flow and API contract` -> `auto` usually enables the senior layer
+- `Implement an auth flow and API contract` -> `auto` usually enables the Senior Engineer layer
 - `Check release status and verify the branch` -> `auto` stays core-only
+- `Review this auth API and find issues` -> `auto` usually enables the Reviewer layer
+
+In `auto` mode, the Senior Engineer layer activates only when implementation signals and engineering context appear together.
 
 ## CLI
 
@@ -101,6 +117,7 @@ Rindaman now includes first-class OpenCode tools:
 `rindaman_status` includes mode and gate metadata so the assistant can avoid false completion claims and explain why the senior layer is active:
 
 - `mode`
+- `secondaryLayer`
 - `seniorEngineer.active`
 - `seniorEngineer.effectiveMode`
 - `seniorEngineer.reason`
@@ -109,6 +126,10 @@ Rindaman now includes first-class OpenCode tools:
 - `seniorEngineer.matchedSignals`
 - `finalResponse.allowed`
 - `finalResponse.reason`
+
+Stable vs evolving note:
+
+`mode`, `secondaryLayer`, and the presence of `seniorEngineer`/`reviewer` are stable product concepts. `matchedSignals` and exact intent heuristics are experimental and may evolve.
 
 Example status shape:
 
