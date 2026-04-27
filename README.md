@@ -294,6 +294,10 @@ rindaman baseline --workspaces --json
 
 This plugin is intended for GitHub/local installation, not npm publishing.
 
+## Releasing
+
+Rindaman uses a GitHub-only tag-based release workflow. See `docs/releasing.md` for the maintainer release checklist.
+
 Recommended setup:
 
 ```bash

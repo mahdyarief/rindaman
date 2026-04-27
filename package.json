@@ -31,6 +31,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "node bin/rindaman.cjs",
     "doctor": "node bin/rindaman.cjs doctor",
+    "release:check": "npm run typecheck && npm run build && npm test && node bin/rindaman.cjs doctor --json && npm pack --dry-run",
+    "release:pack": "npm pack",
     "test": "node --test"
   },
   "keywords": [
