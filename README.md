@@ -11,10 +11,7 @@ Rindaman combines:
 
 The Senior Fullstack layer activates automatically for implementation-oriented requests and stays quiet for pure verification, status, or release tasks.
 
-Rindaman combines:
-
-- `strict-mode`: concise, direct, low-filler responses
-- `quality-check`: clean implementation lifecycle plus verification checks
+Rindaman combines the original `strict-mode` and `quality-check` concepts into a single plugin with layered behavior.
 
 ## Lifecycle
 
@@ -46,6 +43,31 @@ Rindaman is enabled by default.
 - `normal mode`
 - `strict mode`
 
+### Senior Engineer Modes
+
+Rindaman supports three senior-guidance modes:
+
+- `core` - governance only
+- `senior` - governance plus senior fullstack guidance
+- `auto` - governance always, senior guidance only for implementation-oriented requests
+
+Session overrides:
+
+- `/rindaman mode core`
+- `/rindaman mode senior`
+- `/rindaman mode auto`
+
+Precedence:
+
+1. Session mode override via chat command
+2. Plugin config `mode`
+3. Default `auto`
+
+Examples:
+
+- `Implement an auth flow and API contract` -> `auto` usually enables the senior layer
+- `Check release status and verify the branch` -> `auto` stays core-only
+
 ## CLI
 
 Run from the project root:
@@ -76,7 +98,46 @@ Rindaman now includes first-class OpenCode tools:
 - `rindaman_check` — runs the verification command and records session check status.
 - `rindaman_status` — reports changed files, verification requirement, and last check state.
 
-`rindaman_status` includes `finalResponse.allowed` and `finalResponse.reason` so the assistant can avoid false completion claims when verification is pending or failed.
+`rindaman_status` includes mode and gate metadata so the assistant can avoid false completion claims and explain why the senior layer is active:
+
+- `mode`
+- `seniorFullstack.active`
+- `seniorEngineer.active`
+- `seniorEngineer.reason`
+- `seniorEngineer.intent`
+- `finalResponse.allowed`
+- `finalResponse.reason`
+
+Example status shape:
+
+```json
+{
+  "enabled": true,
+  "mode": "auto",
+  "strictResponses": true,
+  "qualityLifecycle": true,
+  "verificationRequired": true,
+  "changedFiles": ["src/index.ts"],
+  "lastCheck": {
+    "status": "passed",
+    "command": "node bin/rindaman.cjs doctor --json",
+    "checkedAt": "2026-04-26T00:00:00.000Z",
+    "exitCode": 0
+  },
+  "seniorFullstack": {
+    "active": true
+  },
+  "seniorEngineer": {
+    "active": true,
+    "reason": "implementation intent detected",
+    "intent": "implementation"
+  },
+  "finalResponse": {
+    "allowed": true,
+    "reason": "verification passed"
+  }
+}
+```
 
 The plugin injects rules with `experimental.chat.system.transform` and keeps compatibility with message-history injection for OpenCode setups that still rely on message transforms.
 
@@ -210,6 +271,7 @@ Example OpenCode plugin options:
       "rindaman",
       {
         "enabled": true,
+        "mode": "auto",
         "strictResponses": true,
         "qualityLifecycle": true,
         "verificationRequired": true
@@ -224,6 +286,7 @@ Supported options:
 | Option | Default | Purpose |
 |---|---:|---|
 | `enabled` | `true` | Enable Rindaman rule injection |
+| `mode` | `auto` | Choose `core`, `senior`, or `auto` senior-guidance behavior |
 | `strictResponses` | `true` | Report strict response mode in status |
 | `qualityLifecycle` | `true` | Report lifecycle mode in status |
 | `verificationRequired` | `true` | Mark changed sessions as requiring verification |
