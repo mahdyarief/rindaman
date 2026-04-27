@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tool } from "@opencode-ai/plugin";
-import { RINDAMAN_RULE, RINDAMAN_RULE_MARKER } from "./rindaman-rule.js";
+import { RINDAMAN_RULE, RINDAMAN_RULE_MARKER, RINDAMAN_SENIOR_FULLSTACK_RULE, RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER, } from "./rindaman-rule.js";
 const RINDAMAN_ON_COMMANDS = new Set([
     "/rindaman on",
     "rindaman on",
@@ -21,6 +21,31 @@ const RINDAMAN_OFF_COMMANDS = new Set([
     "normal mode",
     "stop strict",
 ]);
+const IMPLEMENTATION_INTENT_KEYWORDS = [
+    "architecture",
+    "api",
+    "frontend",
+    "backend",
+    "auth",
+    "database",
+    "model",
+    "schema",
+    "contract",
+    "session",
+    "feature architecture",
+    "data flow",
+];
+const GOVERNANCE_ONLY_KEYWORDS = [
+    "review",
+    "status",
+    "release",
+    "version",
+    "push",
+    "commit",
+    "verify",
+    "test",
+    "doctor",
+];
 const getBooleanOption = (options, key, defaultValue) => {
     const configuredValue = options?.[key];
     return typeof configuredValue === "boolean" ? configuredValue : defaultValue;
@@ -33,6 +58,7 @@ const resolvePluginOptions = (options) => ({
 });
 const sessionStates = new Map();
 const sessionEnabledStates = new Map();
+const sessionSeniorFullstackStates = new Map();
 const getSessionState = (sessionID) => {
     const existingState = sessionStates.get(sessionID);
     if (existingState) {
@@ -67,6 +93,9 @@ const createFinalResponseGate = (resolvedOptions, sessionState) => {
 const isRindamanRuleMessage = (message) => message.parts.some((part) => part.type === "text" &&
     typeof part.text === "string" &&
     part.text.includes(RINDAMAN_RULE_MARKER));
+const isSeniorFullstackRuleMessage = (message) => message.parts.some((part) => part.type === "text" &&
+    typeof part.text === "string" &&
+    part.text.includes(RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER));
 const createRindamanRuleMessage = () => ({
     info: {
         id: "rindaman-global-rule",
@@ -79,11 +108,29 @@ const createRindamanRuleMessage = () => ({
         },
     ],
 });
+const createSeniorFullstackRuleMessage = () => ({
+    info: {
+        id: "rindaman-senior-fullstack-rule",
+        role: "system",
+    },
+    parts: [
+        {
+            type: "text",
+            text: RINDAMAN_SENIOR_FULLSTACK_RULE,
+        },
+    ],
+});
 const getMessageRole = (message) => typeof message.info.role === "string" ? message.info.role : undefined;
 const getMessageText = (message) => message.parts
     .filter((part) => part.type === "text" && typeof part.text === "string")
     .map((part) => part.text ?? "")
     .join("\n");
+const isImplementationOrArchitectureRequest = (text) => {
+    const normalizedText = text.toLowerCase();
+    const hasImplementationKeyword = IMPLEMENTATION_INTENT_KEYWORDS.some((keyword) => normalizedText.includes(keyword));
+    const hasGovernanceOnlyKeyword = GOVERNANCE_ONLY_KEYWORDS.some((keyword) => normalizedText.includes(keyword));
+    return hasImplementationKeyword && !hasGovernanceOnlyKeyword;
+};
 const normalizeCommandText = (text) => text
     .trim()
     .toLowerCase()
@@ -127,6 +174,22 @@ const getRindamanEnabled = (messages) => {
         }
     }
     return enabled;
+};
+const getSeniorFullstackEnabled = (messages) => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (getMessageRole(message) !== "user") {
+            continue;
+        }
+        const text = getMessageText(message);
+        if (!text) {
+            continue;
+        }
+        if (isImplementationOrArchitectureRequest(text)) {
+            return true;
+        }
+    }
+    return false;
 };
 const getCliPath = () => resolve(dirname(fileURLToPath(import.meta.url)), "..", "bin", "rindaman.cjs");
 const readChangedFiles = (directory) => {
@@ -211,6 +274,7 @@ const createRindamanStatusTool = (resolvedOptions) => tool({
         }
         const verificationRequired = isVerificationRequired(resolvedOptions, sessionState);
         const finalResponse = createFinalResponseGate(resolvedOptions, sessionState);
+        const seniorFullstackActive = sessionSeniorFullstackStates.get(context.sessionID) ?? false;
         return JSON.stringify({
             enabled: resolvedOptions.enabled,
             strictResponses: resolvedOptions.strictResponses,
@@ -222,6 +286,9 @@ const createRindamanStatusTool = (resolvedOptions) => tool({
                 command: sessionState.lastCheckCommand ?? null,
                 checkedAt: sessionState.lastCheckAt ?? null,
                 exitCode: sessionState.lastCheckExitCode ?? null,
+            },
+            seniorFullstack: {
+                active: seniorFullstackActive,
             },
             finalResponse,
         }, null, 2);
@@ -256,10 +323,21 @@ export const server = async (_input, options) => {
             if (!Array.isArray(transformOutput.messages)) {
                 return;
             }
-            const messagesWithoutRindamanRule = transformOutput.messages.filter((message) => !isRindamanRuleMessage(message));
+            const messagesWithoutRindamanRule = transformOutput.messages.filter((message) => !isRindamanRuleMessage(message) && !isSeniorFullstackRuleMessage(message));
             const enabled = resolvedOptions.enabled && getRindamanEnabled(messagesWithoutRindamanRule);
+            const seniorFullstackEnabled = enabled && getSeniorFullstackEnabled(messagesWithoutRindamanRule);
+            const transformSessionID = typeof _input.sessionID === "string"
+                ? _input.sessionID
+                : undefined;
+            if (transformSessionID) {
+                sessionSeniorFullstackStates.set(transformSessionID, seniorFullstackEnabled);
+            }
             transformOutput.messages = enabled
-                ? [createRindamanRuleMessage(), ...messagesWithoutRindamanRule]
+                ? [
+                    createRindamanRuleMessage(),
+                    ...(seniorFullstackEnabled ? [createSeniorFullstackRuleMessage()] : []),
+                    ...messagesWithoutRindamanRule,
+                ]
                 : messagesWithoutRindamanRule;
         },
         "tool.execute.after": async (input, output) => {

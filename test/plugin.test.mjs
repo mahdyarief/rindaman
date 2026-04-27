@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import plugin, { server } from "../dist/index.js";
-import { RINDAMAN_RULE, RINDAMAN_RULE_MARKER } from "../dist/rindaman-rule.js";
+import {
+  RINDAMAN_RULE,
+  RINDAMAN_RULE_MARKER,
+  RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER,
+} from "../dist/rindaman-rule.js";
 
 const createTextPart = (text) => ({
   type: "text",
@@ -52,6 +56,18 @@ const getRindamanRuleMessages = (messages) =>
       ),
   );
 
+const getSeniorFullstackRuleMessages = (messages) =>
+  messages.filter(
+    (message) =>
+      message.info?.role === "system" &&
+      message.parts?.some(
+        (part) =>
+          part.type === "text" &&
+          typeof part.text === "string" &&
+          part.text.includes(RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER),
+      ),
+  );
+
 test("plugin exports expected id", () => {
   assert.equal(plugin.id, "rindaman");
   assert.equal(plugin.server, server);
@@ -65,6 +81,7 @@ test("injects rindaman rule by default", async () => {
   assert.equal(messages[0].info.role, "system");
   assert.equal(messages[0].parts[0].text, RINDAMAN_RULE);
   assert.equal(getRindamanRuleMessages(messages).length, 1);
+  assert.equal(getSeniorFullstackRuleMessages(messages).length, 0);
 });
 
 test("does not duplicate rindaman rule", async () => {
@@ -141,6 +158,25 @@ test("does not toggle for incidental discussion text", async () => {
   ]);
 
   assert.equal(getRindamanRuleMessages(messages).length, 1);
+  assert.equal(getSeniorFullstackRuleMessages(messages).length, 0);
+});
+
+test("implementation requests inject senior fullstack guidance", async () => {
+  const messages = await runTransform([
+    createMessage("user", "Implement a new auth flow for the dashboard"),
+  ]);
+
+  assert.equal(getRindamanRuleMessages(messages).length, 1);
+  assert.equal(getSeniorFullstackRuleMessages(messages).length, 1);
+});
+
+test("release or status requests do not inject senior fullstack guidance", async () => {
+  const messages = await runTransform([
+    createMessage("user", "Check release status and verify the branch"),
+  ]);
+
+  assert.equal(getRindamanRuleMessages(messages).length, 1);
+  assert.equal(getSeniorFullstackRuleMessages(messages).length, 0);
 });
 
 test("exposes Rindaman quality tools", async () => {
@@ -158,8 +194,26 @@ test("rindaman_status exposes final response gate metadata", async () => {
   assert.equal(status.lastCheck.status, "not_run");
   assert.equal(status.lastCheck.command, null);
   assert.equal(status.lastCheck.checkedAt, null);
+  assert.equal(typeof status.seniorFullstack.active, "boolean");
   assert.equal(typeof status.finalResponse.allowed, "boolean");
   assert.equal(typeof status.finalResponse.reason, "string");
+});
+
+test("rindaman_status reports senior fullstack activation state", async () => {
+  const hooks = await server();
+  const context = createToolContext();
+  const output = createOutput([
+    createMessage("user", "Implement a product API and auth flow"),
+  ]);
+
+  await hooks["experimental.chat.messages.transform"](
+    { sessionID: context.sessionID },
+    output,
+  );
+  const status = await readStatus(hooks, context);
+
+  assert.equal(typeof status.seniorFullstack.active, "boolean");
+  assert.equal(status.seniorFullstack.active, true);
 });
 
 test("dirty session requires verification before final response", async () => {

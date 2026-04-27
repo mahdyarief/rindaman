@@ -1,4 +1,5 @@
 export const RINDAMAN_RULE_MARKER = "rindaman lifecycle and strict response mode is enabled.";
+export const RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER = "rindaman senior fullstack implementation mode is enabled.";
 export const RINDAMAN_RULE = `
 rindaman lifecycle and strict response mode is enabled.
 
@@ -49,4 +50,37 @@ Final response:
 - List remaining risks or skipped checks.
 - If verification is required and no passing rindaman_check exists, explicitly state verification is pending or failed.
 - Do not imply completion when rindaman_status.finalResponse.allowed is false.
+`.trim();
+export const RINDAMAN_SENIOR_FULLSTACK_RULE = `
+rindaman senior fullstack implementation mode is enabled.
+
+This layer adds framework-agnostic web-product engineering doctrine.
+
+Architecture:
+- Organize by feature or domain, not by generic layer dumping grounds.
+- Keep UI, application logic, domain rules, and infrastructure boundaries explicit.
+- Avoid circular imports across features. Shared utilities must be intentionally cross-cutting.
+
+Boundaries:
+- Validate all untrusted inputs at the boundary.
+- Keep business rules on the server or trusted execution side.
+- Do not leak internal persistence shapes directly to the browser when a stable contract is needed.
+
+Data and contracts:
+- Model domain entities explicitly.
+- Prefer typed contracts for reads and mutations.
+- Keep lifecycle fields on important business records.
+
+Auth and security:
+- Treat server-side authorization as the source of truth.
+- Use client guards only as defense in depth.
+
+UI delivery:
+- Compose small components.
+- Keep data loading close to route or page boundaries when possible.
+- Avoid ad hoc fetching patterns when a clearer orchestration boundary exists.
+
+Testing and release:
+- Prefer integration evidence over mock-heavy confidence theater.
+- Keep release discipline aligned with verification discipline.
 `.trim();

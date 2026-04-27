@@ -2,6 +2,15 @@
 
 OpenCode plugin that merges strict response mode with lifecycle code quality management.
 
+## Two-Layer Model
+
+Rindaman combines:
+
+- **Core** - strict response mode, lifecycle verification, and quality governance
+- **Senior Fullstack** - optional framework-agnostic web-product engineering guidance for implementation-oriented tasks
+
+The Senior Fullstack layer activates automatically for implementation-oriented requests and stays quiet for pure verification, status, or release tasks.
+
 Rindaman combines:
 
 - `strict-mode`: concise, direct, low-filler responses
