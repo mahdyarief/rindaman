@@ -70,6 +70,6 @@ Canonical status concepts:
 - matched signal details
 - exact secondary-layer intent inference
 
-## Compatibility Notes
+## Product Notes
 
-Older mental models of Rindaman as only `strict + quality` map to the current `core` layer. Newer guidance layers build on top of core rather than replacing it.
+The `core` layer covers response discipline, verification, and quality governance. The `senior` and `reviewer` layers extend that core with task-specific guidance rather than changing the base contract.

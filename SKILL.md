@@ -5,16 +5,11 @@ description: OpenCode plugin that merges strict response behavior with lifecycle
 
 # rindaman
 
-Use this plugin as the single OpenCode quality layer.
+Use this plugin as the canonical OpenCode quality layer.
 
-It replaces separate use of:
+It consolidates strict response behavior, lifecycle verification, and quality orchestration into one plugin surface.
 
-- strict-mode
-- quality-check
-- implement-clean
-- code-quality-check
-- no_ai_slop
-- pr_quality_check
+Use `rindaman` as the single quality entrypoint for OpenCode sessions.
 
 ## Lifecycle
 
@@ -37,13 +32,29 @@ It injects one global rule that combines:
 - verification-before-completion behavior
 - root-cause failure handling
 
+## Boundaries
+
+Rindaman is the umbrella quality layer. It owns:
+
+- strict response behavior
+- lifecycle quality gates
+- verification-before-completion enforcement
+- session check/status tooling
+
+Rindaman works with specialized skills instead of replacing them. Keep using specialized skills when they apply:
+
+- planning and design skills for scoping and specs
+- TDD and generation-discipline skills for implementation behavior
+- stack and domain skills for framework-specific guidance
+- reviewer-style skills for findings-first review workflows
+
 ## Commands
 
 - `/rindaman on` — enable full Rindaman behavior
 - `/rindaman off` — disable full Rindaman behavior for the session
-- `/quality on` / `/quality off` — compatibility aliases
-- `/strict on` / `/strict off` — compatibility aliases
-- `strict mode` / `normal mode` — natural-language aliases
+- `/quality on` / `/quality off` — alternate session toggle commands
+- `/strict on` / `/strict off` — alternate response-mode toggle commands
+- `strict mode` / `normal mode` — natural-language response-mode commands
 
 ## Verification
 
@@ -122,4 +133,4 @@ Recommended config:
 }
 ```
 
-Do not also load `strict-mode`; Rindaman already includes it.
+Use `rindaman` as the only quality plugin in your OpenCode config.

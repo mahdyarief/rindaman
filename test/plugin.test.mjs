@@ -135,7 +135,7 @@ test("re-enables rindaman after disabling", async () => {
   assert.equal(messages[0].parts[0].text, RINDAMAN_RULE);
 });
 
-test("supports strict compatibility toggles", async () => {
+test("supports alternate strict toggle commands", async () => {
   const messages = await runTransform([
     createMessage("user", "/strict off"),
     createMessage("user", "/strict on"),
@@ -145,7 +145,7 @@ test("supports strict compatibility toggles", async () => {
   assert.equal(getRindamanRuleMessages(messages).length, 1);
 });
 
-test("supports quality compatibility toggles", async () => {
+test("supports alternate quality toggle commands", async () => {
   const messages = await runTransform([
     createMessage("user", "/quality off"),
     createMessage("user", "/quality on"),

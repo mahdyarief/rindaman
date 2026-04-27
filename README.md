@@ -23,7 +23,7 @@ Rindaman combines:
 
 The secondary layer is mutually exclusive: either none, Senior Engineer, or Reviewer.
 
-Rindaman combines the original `strict-mode` and `quality-check` concepts into a single plugin with layered behavior.
+Rindaman combines response discipline, lifecycle quality governance, and verification tooling into a single plugin with layered behavior.
 
 ## Lifecycle
 
@@ -407,13 +407,13 @@ npm install
 npm run build
 ```
 
-Then reference the local plugin path from OpenCode config, similar to the strict-mode setup.
+Then reference the local plugin path from OpenCode config.
 
 The package is marked `private: true` to avoid accidental npm publishing.
 
 ## OpenCode plugin config
 
-Use Rindaman from GitHub exactly like your strict-mode setup:
+Use Rindaman from GitHub in your OpenCode plugin config:
 
 ```json
 {
@@ -423,7 +423,7 @@ Use Rindaman from GitHub exactly like your strict-mode setup:
 }
 ```
 
-Do not load `strict-mode` separately if `rindaman` is enabled, because Rindaman already includes strict response behavior.
+Use `rindaman` as the only quality plugin entry in OpenCode config.
 
 ## Install in OpenCode
 
@@ -441,9 +441,9 @@ Then restart OpenCode so it resolves and loads the plugin.
 
 Recommended setup:
 
-- Use `rindaman` instead of loading `strict-mode` separately.
+- Use `rindaman` as the single quality plugin entry.
 - Keep `superpowers` if you already use it.
-- Do not add the old `quality-check` skill separately; Rindaman includes the quality lifecycle.
+- Keep your config focused on active plugins only.
 
 After restart, test with:
 
