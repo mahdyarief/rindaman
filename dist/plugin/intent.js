@@ -11,6 +11,7 @@ const ARCHITECTURE_SIGNALS = [
     "frontend",
 ];
 const GOVERNANCE_SIGNALS = ["review", "status", "release", "verify", "push", "commit", "doctor"];
+const REVIEW_SIGNALS = ["review", "audit", "inspect", "find issues", "risks", "regression"];
 const collectMatchedSignals = (text, signals) => signals.filter((signal) => text.includes(signal));
 export const analyzeSeniorFullstackActivation = (messages, getMessageRole, getMessageText) => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -25,6 +26,16 @@ export const analyzeSeniorFullstackActivation = (messages, getMessageRole, getMe
         const implementationSignals = collectMatchedSignals(normalizedText, IMPLEMENTATION_VERBS);
         const architectureSignals = collectMatchedSignals(normalizedText, ARCHITECTURE_SIGNALS);
         const governanceSignals = collectMatchedSignals(normalizedText, GOVERNANCE_SIGNALS);
+        const reviewSignals = collectMatchedSignals(normalizedText, REVIEW_SIGNALS);
+        if (reviewSignals.length > 0) {
+            return {
+                active: false,
+                intent: "review",
+                reason: "review-oriented request detected",
+                intentSource: "auto-signals",
+                matchedSignals: reviewSignals,
+            };
+        }
         if (governanceSignals.length > 0 && implementationSignals.length === 0) {
             return {
                 active: false,

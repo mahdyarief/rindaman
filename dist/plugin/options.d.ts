@@ -1,5 +1,5 @@
 import type { PluginOptions } from "@opencode-ai/plugin";
-export type RindamanMode = "core" | "senior" | "auto";
+export type RindamanMode = "core" | "senior" | "reviewer" | "auto";
 export type RindamanResolvedOptions = {
     enabled: boolean;
     strictResponses: boolean;

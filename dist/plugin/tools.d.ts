@@ -9,21 +9,22 @@ type ToolDependencies = {
     getSeniorFullstackActive: (sessionID: string) => boolean;
     getSessionMode: (sessionID: string) => RindamanMode | undefined;
     getSeniorEngineerMetadata: (sessionID: string) => SeniorEngineerActivation | undefined;
+    getSecondaryLayer: (sessionID: string) => "none" | "senior" | "reviewer";
 };
 export declare const createRindamanCheckTool: (dependencies: ToolDependencies) => {
     description: string;
     args: {
         mode: import("zod").ZodDefault<import("zod").ZodEnum<{
             doctor: "doctor";
-            check: "check";
             audit: "audit";
+            check: "check";
         }>>;
         json: import("zod").ZodDefault<import("zod").ZodBoolean>;
         strict: import("zod").ZodDefault<import("zod").ZodBoolean>;
         report: import("zod").ZodDefault<import("zod").ZodBoolean>;
     };
     execute(args: {
-        mode: "doctor" | "check" | "audit";
+        mode: "doctor" | "audit" | "check";
         json: boolean;
         strict: boolean;
         report: boolean;

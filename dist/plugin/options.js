@@ -4,7 +4,7 @@ const getBooleanOption = (options, key, defaultValue) => {
 };
 const getModeOption = (options) => {
     const configuredValue = options?.mode;
-    return configuredValue === "core" || configuredValue === "senior"
+    return configuredValue === "core" || configuredValue === "senior" || configuredValue === "reviewer"
         ? configuredValue
         : "auto";
 };

@@ -1,6 +1,6 @@
 import type { PluginOptions } from "@opencode-ai/plugin"
 
-export type RindamanMode = "core" | "senior" | "auto"
+export type RindamanMode = "core" | "senior" | "reviewer" | "auto"
 
 export type RindamanResolvedOptions = {
   enabled: boolean
@@ -23,7 +23,7 @@ const getBooleanOption = (
 const getModeOption = (options: PluginOptions | undefined): RindamanMode => {
   const configuredValue = options?.mode
 
-  return configuredValue === "core" || configuredValue === "senior"
+  return configuredValue === "core" || configuredValue === "senior" || configuredValue === "reviewer"
     ? configuredValue
     : "auto"
 }

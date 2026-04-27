@@ -1,12 +1,13 @@
 import { createFinalResponseGate, isVerificationRequired } from "./plugin/final-response-gate.js";
 import { analyzeSeniorFullstackActivation, } from "./plugin/intent.js";
 import { resolvePluginOptions } from "./plugin/options.js";
-import { createRindamanRuleMessage, createSeniorFullstackRuleMessage, getMessageRole, getMessageText, isRindamanRuleMessage, isSeniorFullstackRuleMessage, } from "./plugin/rule-messages.js";
+import { createRindamanRuleMessage, createReviewerRuleMessage, createSeniorFullstackRuleMessage, getMessageRole, getMessageText, isReviewerRuleMessage, isRindamanRuleMessage, isSeniorFullstackRuleMessage, } from "./plugin/rule-messages.js";
 import { getSessionMode, getSessionState, sessionEnabledStates, sessionSeniorFullstackStates, setSessionMode, } from "./plugin/session-state.js";
 import { createRindamanCheckTool, createRindamanStatusTool } from "./plugin/tools.js";
 import { getRindamanEnabled, getRindamanModeOverride, getRindamanToggle, } from "./plugin/toggles.js";
 const getEffectiveMode = (configuredMode, sessionMode) => sessionMode ?? configuredMode;
 const sessionSeniorEngineerMetadata = new Map();
+const sessionSecondaryLayerStates = new Map();
 export const server = async (_input, options) => {
     const resolvedOptions = resolvePluginOptions(options);
     return {
@@ -18,6 +19,7 @@ export const server = async (_input, options) => {
                 getSeniorFullstackActive: (sessionID) => sessionSeniorFullstackStates.get(sessionID) ?? false,
                 getSessionMode,
                 getSeniorEngineerMetadata: (sessionID) => sessionSeniorEngineerMetadata.get(sessionID),
+                getSecondaryLayer: (sessionID) => sessionSecondaryLayerStates.get(sessionID) ?? "none",
             }),
             rindaman_status: createRindamanStatusTool(resolvedOptions, {
                 getSessionState,
@@ -26,6 +28,7 @@ export const server = async (_input, options) => {
                 getSeniorFullstackActive: (sessionID) => sessionSeniorFullstackStates.get(sessionID) ?? false,
                 getSessionMode,
                 getSeniorEngineerMetadata: (sessionID) => sessionSeniorEngineerMetadata.get(sessionID),
+                getSecondaryLayer: (sessionID) => sessionSecondaryLayerStates.get(sessionID) ?? "none",
             }),
         },
         "chat.message": async (input, output) => {
@@ -56,7 +59,9 @@ export const server = async (_input, options) => {
             if (!Array.isArray(transformOutput.messages)) {
                 return;
             }
-            const messagesWithoutRindamanRules = transformOutput.messages.filter((message) => !isRindamanRuleMessage(message) && !isSeniorFullstackRuleMessage(message));
+            const messagesWithoutRindamanRules = transformOutput.messages.filter((message) => !isRindamanRuleMessage(message) &&
+                !isSeniorFullstackRuleMessage(message) &&
+                !isReviewerRuleMessage(message));
             const enabled = resolvedOptions.enabled && getRindamanEnabled(messagesWithoutRindamanRules, getMessageRole, getMessageText);
             const activation = analyzeSeniorFullstackActivation(messagesWithoutRindamanRules, getMessageRole, getMessageText);
             const transformSessionID = typeof _input.sessionID === "string"
@@ -64,32 +69,48 @@ export const server = async (_input, options) => {
                 : undefined;
             const sessionMode = transformSessionID ? getSessionMode(transformSessionID) : undefined;
             const effectiveMode = getEffectiveMode(resolvedOptions.mode, sessionMode);
-            const effectiveSeniorFullstackEnabled = effectiveMode === "senior"
-                ? enabled
-                : effectiveMode === "core"
-                    ? false
-                    : enabled && activation.active;
+            const secondaryLayer = !enabled
+                ? "none"
+                : effectiveMode === "senior"
+                    ? "senior"
+                    : effectiveMode === "reviewer"
+                        ? "reviewer"
+                        : effectiveMode === "core"
+                            ? "none"
+                            : activation.intent === "review"
+                                ? "reviewer"
+                                : activation.active
+                                    ? "senior"
+                                    : "none";
+            const effectiveSeniorFullstackEnabled = secondaryLayer === "senior";
+            const effectiveReviewerEnabled = secondaryLayer === "reviewer";
             if (transformSessionID) {
                 sessionSeniorFullstackStates.set(transformSessionID, effectiveSeniorFullstackEnabled);
+                sessionSecondaryLayerStates.set(transformSessionID, secondaryLayer);
                 sessionSeniorEngineerMetadata.set(transformSessionID, {
                     ...activation,
-                    active: effectiveSeniorFullstackEnabled,
+                    active: secondaryLayer !== "none",
                     intentSource: effectiveMode === "senior"
                         ? "forced-mode"
-                        : effectiveMode === "core"
+                        : effectiveMode === "reviewer"
                             ? "forced-mode"
-                            : activation.intentSource,
+                            : effectiveMode === "core"
+                                ? "forced-mode"
+                                : activation.intentSource,
                     reason: effectiveMode === "senior"
                         ? "senior mode forced"
-                        : effectiveMode === "core"
-                            ? "core mode forced"
-                            : activation.reason,
+                        : effectiveMode === "reviewer"
+                            ? "reviewer mode forced"
+                            : effectiveMode === "core"
+                                ? "core mode forced"
+                                : activation.reason,
                 });
             }
             transformOutput.messages = enabled
                 ? [
                     createRindamanRuleMessage(),
                     ...(effectiveSeniorFullstackEnabled ? [createSeniorFullstackRuleMessage()] : []),
+                    ...(effectiveReviewerEnabled ? [createReviewerRuleMessage()] : []),
                     ...messagesWithoutRindamanRules,
                 ]
                 : messagesWithoutRindamanRules;

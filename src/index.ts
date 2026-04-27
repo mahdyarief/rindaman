@@ -8,9 +8,11 @@ import {
 import { resolvePluginOptions, type RindamanMode } from "./plugin/options.js"
 import {
   createRindamanRuleMessage,
+  createReviewerRuleMessage,
   createSeniorFullstackRuleMessage,
   getMessageRole,
   getMessageText,
+  isReviewerRuleMessage,
   isRindamanRuleMessage,
   isSeniorFullstackRuleMessage,
   type TransformOutput,
@@ -35,6 +37,7 @@ const getEffectiveMode = (
 ) => sessionMode ?? configuredMode
 
 const sessionSeniorEngineerMetadata = new Map<string, SeniorEngineerActivation>()
+const sessionSecondaryLayerStates = new Map<string, "none" | "senior" | "reviewer">()
 
 export const server: Plugin = async (_input, options) => {
   const resolvedOptions = resolvePluginOptions(options)
@@ -50,6 +53,8 @@ export const server: Plugin = async (_input, options) => {
         getSessionMode,
         getSeniorEngineerMetadata: (sessionID) =>
           sessionSeniorEngineerMetadata.get(sessionID),
+        getSecondaryLayer: (sessionID) =>
+          sessionSecondaryLayerStates.get(sessionID) ?? "none",
       }),
       rindaman_status: createRindamanStatusTool(resolvedOptions, {
         getSessionState,
@@ -60,6 +65,8 @@ export const server: Plugin = async (_input, options) => {
         getSessionMode,
         getSeniorEngineerMetadata: (sessionID) =>
           sessionSeniorEngineerMetadata.get(sessionID),
+        getSecondaryLayer: (sessionID) =>
+          sessionSecondaryLayerStates.get(sessionID) ?? "none",
       }),
     },
     "chat.message": async (input, output) => {
@@ -99,7 +106,9 @@ export const server: Plugin = async (_input, options) => {
 
       const messagesWithoutRindamanRules = transformOutput.messages.filter(
         (message) =>
-          !isRindamanRuleMessage(message) && !isSeniorFullstackRuleMessage(message),
+          !isRindamanRuleMessage(message) &&
+          !isSeniorFullstackRuleMessage(message) &&
+          !isReviewerRuleMessage(message),
       )
       const enabled = resolvedOptions.enabled && getRindamanEnabled(
         messagesWithoutRindamanRules,
@@ -118,27 +127,43 @@ export const server: Plugin = async (_input, options) => {
       const sessionMode = transformSessionID ? getSessionMode(transformSessionID) : undefined
       const effectiveMode = getEffectiveMode(resolvedOptions.mode, sessionMode)
 
-      const effectiveSeniorFullstackEnabled =
-        effectiveMode === "senior"
-          ? enabled
-          : effectiveMode === "core"
-            ? false
-            : enabled && activation.active
+      const secondaryLayer =
+        !enabled
+          ? "none"
+          : effectiveMode === "senior"
+            ? "senior"
+            : effectiveMode === "reviewer"
+              ? "reviewer"
+              : effectiveMode === "core"
+                ? "none"
+                : activation.intent === "review"
+                  ? "reviewer"
+                  : activation.active
+                    ? "senior"
+                    : "none"
+
+      const effectiveSeniorFullstackEnabled = secondaryLayer === "senior"
+      const effectiveReviewerEnabled = secondaryLayer === "reviewer"
 
       if (transformSessionID) {
         sessionSeniorFullstackStates.set(transformSessionID, effectiveSeniorFullstackEnabled)
+        sessionSecondaryLayerStates.set(transformSessionID, secondaryLayer)
         sessionSeniorEngineerMetadata.set(transformSessionID, {
           ...activation,
-          active: effectiveSeniorFullstackEnabled,
+          active: secondaryLayer !== "none",
           intentSource:
             effectiveMode === "senior"
               ? "forced-mode"
+              : effectiveMode === "reviewer"
+                ? "forced-mode"
               : effectiveMode === "core"
                 ? "forced-mode"
                 : activation.intentSource,
           reason:
             effectiveMode === "senior"
               ? "senior mode forced"
+              : effectiveMode === "reviewer"
+                ? "reviewer mode forced"
               : effectiveMode === "core"
                 ? "core mode forced"
                 : activation.reason,
@@ -149,6 +174,7 @@ export const server: Plugin = async (_input, options) => {
         ? [
             createRindamanRuleMessage(),
             ...(effectiveSeniorFullstackEnabled ? [createSeniorFullstackRuleMessage()] : []),
+            ...(effectiveReviewerEnabled ? [createReviewerRuleMessage()] : []),
             ...messagesWithoutRindamanRules,
           ]
         : messagesWithoutRindamanRules

@@ -1,10 +1,13 @@
-import { RINDAMAN_RULE, RINDAMAN_RULE_MARKER, RINDAMAN_SENIOR_FULLSTACK_RULE, RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER, } from "../rindaman-rule.js";
+import { RINDAMAN_RULE, RINDAMAN_RULE_MARKER, RINDAMAN_REVIEWER_RULE, RINDAMAN_REVIEWER_RULE_MARKER, RINDAMAN_SENIOR_FULLSTACK_RULE, RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER, } from "../rindaman-rule.js";
 export const isRindamanRuleMessage = (message) => message.parts.some((part) => part.type === "text" &&
     typeof part.text === "string" &&
     part.text.includes(RINDAMAN_RULE_MARKER));
 export const isSeniorFullstackRuleMessage = (message) => message.parts.some((part) => part.type === "text" &&
     typeof part.text === "string" &&
     part.text.includes(RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER));
+export const isReviewerRuleMessage = (message) => message.parts.some((part) => part.type === "text" &&
+    typeof part.text === "string" &&
+    part.text.includes(RINDAMAN_REVIEWER_RULE_MARKER));
 export const createRindamanRuleMessage = () => ({
     info: {
         id: "rindaman-global-rule",
@@ -26,6 +29,18 @@ export const createSeniorFullstackRuleMessage = () => ({
         {
             type: "text",
             text: RINDAMAN_SENIOR_FULLSTACK_RULE,
+        },
+    ],
+});
+export const createReviewerRuleMessage = () => ({
+    info: {
+        id: "rindaman-reviewer-rule",
+        role: "system",
+    },
+    parts: [
+        {
+            type: "text",
+            text: RINDAMAN_REVIEWER_RULE,
         },
     ],
 });

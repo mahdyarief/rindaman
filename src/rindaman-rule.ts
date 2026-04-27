@@ -3,6 +3,9 @@ export const RINDAMAN_RULE_MARKER = "rindaman lifecycle and strict response mode
 export const RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER =
   "rindaman senior fullstack implementation mode is enabled.";
 
+export const RINDAMAN_REVIEWER_RULE_MARKER =
+  "rindaman reviewer mode is enabled.";
+
 export const RINDAMAN_RULE = `
 rindaman lifecycle and strict response mode is enabled.
 
@@ -87,4 +90,15 @@ UI delivery:
 Testing and release:
 - Prefer integration evidence over mock-heavy confidence theater.
 - Keep release discipline aligned with verification discipline.
+`.trim();
+
+export const RINDAMAN_REVIEWER_RULE = `
+rindaman reviewer mode is enabled.
+
+Review doctrine:
+- Present findings first.
+- Prioritize bugs, regressions, security risks, and missing tests.
+- Prefer concrete behavioral risks over stylistic commentary.
+- If no findings are discovered, say so explicitly.
+- After findings, list residual risks or testing gaps briefly.
 `.trim();

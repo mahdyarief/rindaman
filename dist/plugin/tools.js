@@ -87,6 +87,7 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
         const verificationRequired = dependencies.isVerificationRequired(resolvedOptions, sessionState);
         const finalResponse = dependencies.createFinalResponseGate(resolvedOptions, sessionState);
         const seniorFullstackActive = dependencies.getSeniorFullstackActive(context.sessionID);
+        const secondaryLayer = dependencies.getSecondaryLayer(context.sessionID);
         const sessionMode = dependencies.getSessionMode(context.sessionID);
         const effectiveMode = sessionMode ?? resolvedOptions.mode;
         const seniorEngineerMetadata = dependencies.getSeniorEngineerMetadata(context.sessionID) ?? {
@@ -101,6 +102,7 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
             strictResponses: resolvedOptions.strictResponses,
             qualityLifecycle: resolvedOptions.qualityLifecycle,
             mode: effectiveMode,
+            secondaryLayer,
             verificationRequired,
             changedFiles: sessionState.changedFiles,
             lastCheck: {
@@ -116,6 +118,15 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
                 intent: seniorEngineerMetadata.intent,
                 intentSource: seniorEngineerMetadata.intentSource,
                 matchedSignals: seniorEngineerMetadata.matchedSignals,
+            },
+            reviewer: {
+                active: secondaryLayer === "reviewer",
+                reason: secondaryLayer === "reviewer"
+                    ? seniorEngineerMetadata.reason
+                    : "reviewer layer inactive",
+                intent: secondaryLayer === "reviewer"
+                    ? seniorEngineerMetadata.intent
+                    : "none",
             },
             finalResponse,
         }, null, 2);

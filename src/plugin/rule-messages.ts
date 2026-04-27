@@ -1,6 +1,8 @@
 import {
   RINDAMAN_RULE,
   RINDAMAN_RULE_MARKER,
+  RINDAMAN_REVIEWER_RULE,
+  RINDAMAN_REVIEWER_RULE_MARKER,
   RINDAMAN_SENIOR_FULLSTACK_RULE,
   RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER,
 } from "../rindaman-rule.js"
@@ -35,6 +37,14 @@ export const isSeniorFullstackRuleMessage = (message: TransformMessage) =>
       part.text.includes(RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER),
   )
 
+export const isReviewerRuleMessage = (message: TransformMessage) =>
+  message.parts.some(
+    (part) =>
+      part.type === "text" &&
+      typeof part.text === "string" &&
+      part.text.includes(RINDAMAN_REVIEWER_RULE_MARKER),
+  )
+
 export const createRindamanRuleMessage = (): TransformMessage => ({
   info: {
     id: "rindaman-global-rule",
@@ -57,6 +67,19 @@ export const createSeniorFullstackRuleMessage = (): TransformMessage => ({
     {
       type: "text",
       text: RINDAMAN_SENIOR_FULLSTACK_RULE,
+    },
+  ],
+})
+
+export const createReviewerRuleMessage = (): TransformMessage => ({
+  info: {
+    id: "rindaman-reviewer-rule",
+    role: "system",
+  },
+  parts: [
+    {
+      type: "text",
+      text: RINDAMAN_REVIEWER_RULE,
     },
   ],
 })

@@ -5,6 +5,7 @@ import plugin, { server } from "../dist/index.js";
 import {
   RINDAMAN_RULE,
   RINDAMAN_RULE_MARKER,
+  RINDAMAN_REVIEWER_RULE_MARKER,
   RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER,
 } from "../dist/rindaman-rule.js";
 
@@ -65,6 +66,18 @@ const getSeniorFullstackRuleMessages = (messages) =>
           part.type === "text" &&
           typeof part.text === "string" &&
           part.text.includes(RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER),
+      ),
+  );
+
+const getReviewerRuleMessages = (messages) =>
+  messages.filter(
+    (message) =>
+      message.info?.role === "system" &&
+      message.parts?.some(
+        (part) =>
+          part.type === "text" &&
+          typeof part.text === "string" &&
+          part.text.includes(RINDAMAN_REVIEWER_RULE_MARKER),
       ),
   );
 
@@ -199,6 +212,17 @@ test("config senior mode forces senior guidance", async () => {
 
   assert.equal(getRindamanRuleMessages(output.messages).length, 1);
   assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 1);
+  assert.equal(getReviewerRuleMessages(output.messages).length, 0);
+});
+
+test("config reviewer mode forces reviewer guidance", async () => {
+  const hooks = await server({}, { mode: "reviewer" });
+  const output = createOutput([createMessage("user", "Implement an auth flow")]);
+
+  await hooks["experimental.chat.messages.transform"]({}, output);
+
+  assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 0);
+  assert.equal(getReviewerRuleMessages(output.messages).length, 1);
 });
 
 test("session command can switch mode from auto to core", async () => {
@@ -237,6 +261,27 @@ test("session command can switch mode from auto to senior", async () => {
   );
 
   assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 1);
+  assert.equal(getReviewerRuleMessages(output.messages).length, 0);
+});
+
+test("session command can switch mode to reviewer", async () => {
+  const hooks = await server();
+  const output = createOutput([
+    createMessage("user", "/rindaman mode reviewer"),
+    createMessage("user", "Implement an auth flow"),
+  ]);
+
+  await hooks["chat.message"](
+    { sessionID: "mode-reviewer-session" },
+    { parts: [createTextPart("/rindaman mode reviewer")] },
+  );
+  await hooks["experimental.chat.messages.transform"](
+    { sessionID: "mode-reviewer-session" },
+    output,
+  );
+
+  assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 0);
+  assert.equal(getReviewerRuleMessages(output.messages).length, 1);
 });
 
 test("session command can switch mode back to auto", async () => {
@@ -265,6 +310,7 @@ test("release or status requests do not inject senior fullstack guidance", async
 
   assert.equal(getRindamanRuleMessages(messages).length, 1);
   assert.equal(getSeniorFullstackRuleMessages(messages).length, 0);
+  assert.equal(getReviewerRuleMessages(messages).length, 1);
 });
 
 test("review request mentioning api or auth stays core-only", async () => {
@@ -274,6 +320,17 @@ test("review request mentioning api or auth stays core-only", async () => {
 
   assert.equal(getRindamanRuleMessages(messages).length, 1);
   assert.equal(getSeniorFullstackRuleMessages(messages).length, 0);
+  assert.equal(getReviewerRuleMessages(messages).length, 1);
+});
+
+test("core mode suppresses reviewer and senior layers", async () => {
+  const hooks = await server({}, { mode: "core" });
+  const output = createOutput([createMessage("user", "Review this auth API and find issues")]);
+
+  await hooks["experimental.chat.messages.transform"]({}, output);
+
+  assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 0);
+  assert.equal(getReviewerRuleMessages(output.messages).length, 0);
 });
 
 test("exposes Rindaman quality tools", async () => {
@@ -328,11 +385,25 @@ test("rindaman_status reports mode and senior engineer semantics", async () => {
   const status = await readStatus(hooks, context);
 
   assert.equal(status.mode, "auto");
+  assert.equal(status.secondaryLayer, "senior");
   assert.equal(typeof status.seniorEngineer.active, "boolean");
   assert.equal(typeof status.seniorEngineer.reason, "string");
   assert.equal(typeof status.seniorEngineer.intent, "string");
   assert.equal(typeof status.seniorEngineer.intentSource, "string");
   assert.ok(Array.isArray(status.seniorEngineer.matchedSignals));
+});
+
+test("status reports reviewer secondary layer", async () => {
+  const hooks = await server({}, { mode: "reviewer" });
+  const context = createToolContext();
+  const output = createOutput([createMessage("user", "Review this API")]);
+
+  await hooks["experimental.chat.messages.transform"]({ sessionID: context.sessionID }, output);
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.mode, "reviewer");
+  assert.equal(status.secondaryLayer, "reviewer");
+  assert.equal(typeof status.reviewer.active, "boolean");
 });
 
 test("status reports matched signals and intent source", async () => {

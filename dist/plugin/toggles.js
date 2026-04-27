@@ -51,6 +51,9 @@ export const getRindamanModeOverride = (text) => {
     if (normalizedFullText === "/rindaman mode senior" || normalizedFullText === "rindaman mode senior") {
         return "senior";
     }
+    if (normalizedFullText === "/rindaman mode reviewer" || normalizedFullText === "rindaman mode reviewer") {
+        return "reviewer";
+    }
     if (normalizedFullText === "/rindaman mode auto" || normalizedFullText === "rindaman mode auto") {
         return "auto";
     }
@@ -64,6 +67,8 @@ export const getRindamanModeOverride = (text) => {
             return "core";
         if (line === "/rindaman mode senior" || line === "rindaman mode senior")
             return "senior";
+        if (line === "/rindaman mode reviewer" || line === "rindaman mode reviewer")
+            return "reviewer";
         if (line === "/rindaman mode auto" || line === "rindaman mode auto")
             return "auto";
     }
