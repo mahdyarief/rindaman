@@ -2,9 +2,10 @@ import { createFinalResponseGate, isVerificationRequired } from "./plugin/final-
 import { getSeniorFullstackEnabled } from "./plugin/intent.js";
 import { resolvePluginOptions } from "./plugin/options.js";
 import { createRindamanRuleMessage, createSeniorFullstackRuleMessage, getMessageRole, getMessageText, isRindamanRuleMessage, isSeniorFullstackRuleMessage, } from "./plugin/rule-messages.js";
-import { getSessionState, sessionEnabledStates, sessionSeniorFullstackStates, } from "./plugin/session-state.js";
+import { getSessionMode, getSessionState, sessionEnabledStates, sessionSeniorFullstackStates, setSessionMode, } from "./plugin/session-state.js";
 import { createRindamanCheckTool, createRindamanStatusTool } from "./plugin/tools.js";
-import { getRindamanEnabled, getRindamanToggle } from "./plugin/toggles.js";
+import { getRindamanEnabled, getRindamanModeOverride, getRindamanToggle, } from "./plugin/toggles.js";
+const getEffectiveMode = (configuredMode, sessionMode) => sessionMode ?? configuredMode;
 export const server = async (_input, options) => {
     const resolvedOptions = resolvePluginOptions(options);
     return {
@@ -14,12 +15,14 @@ export const server = async (_input, options) => {
                 createFinalResponseGate,
                 isVerificationRequired,
                 getSeniorFullstackActive: (sessionID) => sessionSeniorFullstackStates.get(sessionID) ?? false,
+                getSessionMode,
             }),
             rindaman_status: createRindamanStatusTool(resolvedOptions, {
                 getSessionState,
                 createFinalResponseGate,
                 isVerificationRequired,
                 getSeniorFullstackActive: (sessionID) => sessionSeniorFullstackStates.get(sessionID) ?? false,
+                getSessionMode,
             }),
         },
         "chat.message": async (input, output) => {
@@ -28,8 +31,12 @@ export const server = async (_input, options) => {
                 .map((part) => part.text ?? "")
                 .join("\n");
             const toggle = getRindamanToggle(messageText);
+            const modeOverride = getRindamanModeOverride(messageText);
             if (typeof toggle === "boolean") {
                 sessionEnabledStates.set(input.sessionID, toggle);
+            }
+            if (modeOverride) {
+                setSessionMode(input.sessionID, modeOverride);
             }
         },
         "experimental.chat.system.transform": async (input, output) => {
@@ -52,13 +59,20 @@ export const server = async (_input, options) => {
             const transformSessionID = typeof _input.sessionID === "string"
                 ? _input.sessionID
                 : undefined;
+            const sessionMode = transformSessionID ? getSessionMode(transformSessionID) : undefined;
+            const effectiveMode = getEffectiveMode(resolvedOptions.mode, sessionMode);
+            const effectiveSeniorFullstackEnabled = effectiveMode === "senior"
+                ? enabled
+                : effectiveMode === "core"
+                    ? false
+                    : seniorFullstackEnabled;
             if (transformSessionID) {
-                sessionSeniorFullstackStates.set(transformSessionID, seniorFullstackEnabled);
+                sessionSeniorFullstackStates.set(transformSessionID, effectiveSeniorFullstackEnabled);
             }
             transformOutput.messages = enabled
                 ? [
                     createRindamanRuleMessage(),
-                    ...(seniorFullstackEnabled ? [createSeniorFullstackRuleMessage()] : []),
+                    ...(effectiveSeniorFullstackEnabled ? [createSeniorFullstackRuleMessage()] : []),
                     ...messagesWithoutRindamanRules,
                 ]
                 : messagesWithoutRindamanRules;

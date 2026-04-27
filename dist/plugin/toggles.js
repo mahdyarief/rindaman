@@ -43,6 +43,32 @@ export const getRindamanToggle = (text) => {
     }
     return undefined;
 };
+export const getRindamanModeOverride = (text) => {
+    const normalizedFullText = normalizeCommandText(text);
+    if (normalizedFullText === "/rindaman mode core" || normalizedFullText === "rindaman mode core") {
+        return "core";
+    }
+    if (normalizedFullText === "/rindaman mode senior" || normalizedFullText === "rindaman mode senior") {
+        return "senior";
+    }
+    if (normalizedFullText === "/rindaman mode auto" || normalizedFullText === "rindaman mode auto") {
+        return "auto";
+    }
+    const lines = text
+        .split(/\r?\n/)
+        .map((line) => normalizeCommandText(line))
+        .filter(Boolean);
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+        const line = lines[index];
+        if (line === "/rindaman mode core" || line === "rindaman mode core")
+            return "core";
+        if (line === "/rindaman mode senior" || line === "rindaman mode senior")
+            return "senior";
+        if (line === "/rindaman mode auto" || line === "rindaman mode auto")
+            return "auto";
+    }
+    return undefined;
+};
 export const getRindamanEnabled = (messages, getMessageRole, getMessageText) => {
     let enabled = true;
     for (const message of messages) {

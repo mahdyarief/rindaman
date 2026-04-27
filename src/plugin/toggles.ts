@@ -1,3 +1,4 @@
+import type { RindamanMode } from "./options.js"
 const RINDAMAN_ON_COMMANDS = new Set([
   "/rindaman on",
   "rindaman on",
@@ -50,6 +51,35 @@ export const getRindamanToggle = (text: string) => {
     if (RINDAMAN_OFF_COMMANDS.has(line)) {
       return false
     }
+  }
+
+  return undefined
+}
+
+export const getRindamanModeOverride = (text: string): RindamanMode | undefined => {
+  const normalizedFullText = normalizeCommandText(text)
+
+  if (normalizedFullText === "/rindaman mode core" || normalizedFullText === "rindaman mode core") {
+    return "core"
+  }
+  if (normalizedFullText === "/rindaman mode senior" || normalizedFullText === "rindaman mode senior") {
+    return "senior"
+  }
+  if (normalizedFullText === "/rindaman mode auto" || normalizedFullText === "rindaman mode auto") {
+    return "auto"
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => normalizeCommandText(line))
+    .filter(Boolean)
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]
+
+    if (line === "/rindaman mode core" || line === "rindaman mode core") return "core"
+    if (line === "/rindaman mode senior" || line === "rindaman mode senior") return "senior"
+    if (line === "/rindaman mode auto" || line === "rindaman mode auto") return "auto"
   }
 
   return undefined

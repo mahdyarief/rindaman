@@ -170,6 +170,85 @@ test("implementation requests inject senior fullstack guidance", async () => {
   assert.equal(getSeniorFullstackRuleMessages(messages).length, 1);
 });
 
+test("config core mode suppresses senior guidance", async () => {
+  const hooks = await server({}, { mode: "core" });
+  const output = createOutput([
+    createMessage("user", "Implement an auth and API flow"),
+  ]);
+
+  await hooks["experimental.chat.messages.transform"]({}, output);
+
+  assert.equal(getRindamanRuleMessages(output.messages).length, 1);
+  assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 0);
+});
+
+test("config senior mode forces senior guidance", async () => {
+  const hooks = await server({}, { mode: "senior" });
+  const output = createOutput([createMessage("user", "Check release status")]);
+
+  await hooks["experimental.chat.messages.transform"]({}, output);
+
+  assert.equal(getRindamanRuleMessages(output.messages).length, 1);
+  assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 1);
+});
+
+test("session command can switch mode from auto to core", async () => {
+  const hooks = await server();
+  const output = createOutput([
+    createMessage("user", "/rindaman mode core"),
+    createMessage("user", "Implement an auth and API flow"),
+  ]);
+
+  await hooks["chat.message"](
+    { sessionID: "mode-core-session" },
+    { parts: [createTextPart("/rindaman mode core")] },
+  );
+  await hooks["experimental.chat.messages.transform"](
+    { sessionID: "mode-core-session" },
+    output,
+  );
+
+  assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 0);
+});
+
+test("session command can switch mode from auto to senior", async () => {
+  const hooks = await server();
+  const output = createOutput([
+    createMessage("user", "/rindaman mode senior"),
+    createMessage("user", "Check release status"),
+  ]);
+
+  await hooks["chat.message"](
+    { sessionID: "mode-senior-session" },
+    { parts: [createTextPart("/rindaman mode senior")] },
+  );
+  await hooks["experimental.chat.messages.transform"](
+    { sessionID: "mode-senior-session" },
+    output,
+  );
+
+  assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 1);
+});
+
+test("session command can switch mode back to auto", async () => {
+  const hooks = await server({}, { mode: "senior" });
+  const output = createOutput([
+    createMessage("user", "/rindaman mode auto"),
+    createMessage("user", "Check release status"),
+  ]);
+
+  await hooks["chat.message"](
+    { sessionID: "mode-auto-session" },
+    { parts: [createTextPart("/rindaman mode auto")] },
+  );
+  await hooks["experimental.chat.messages.transform"](
+    { sessionID: "mode-auto-session" },
+    output,
+  );
+
+  assert.equal(getSeniorFullstackRuleMessages(output.messages).length, 0);
+});
+
 test("release or status requests do not inject senior fullstack guidance", async () => {
   const messages = await runTransform([
     createMessage("user", "Check release status and verify the branch"),
@@ -214,6 +293,25 @@ test("rindaman_status reports senior fullstack activation state", async () => {
 
   assert.equal(typeof status.seniorFullstack.active, "boolean");
   assert.equal(status.seniorFullstack.active, true);
+});
+
+test("rindaman_status reports mode and senior engineer semantics", async () => {
+  const hooks = await server({}, { mode: "auto" });
+  const context = createToolContext();
+  const output = createOutput([
+    createMessage("user", "Implement a product API and auth flow"),
+  ]);
+
+  await hooks["experimental.chat.messages.transform"](
+    { sessionID: context.sessionID },
+    output,
+  );
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.mode, "auto");
+  assert.equal(typeof status.seniorEngineer.active, "boolean");
+  assert.equal(typeof status.seniorEngineer.reason, "string");
+  assert.equal(typeof status.seniorEngineer.intent, "string");
 });
 
 test("dirty session requires verification before final response", async () => {

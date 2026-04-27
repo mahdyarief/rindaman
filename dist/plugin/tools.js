@@ -60,6 +60,7 @@ export const createRindamanCheckTool = (dependencies) => tool({
             strictResponses: true,
             qualityLifecycle: true,
             verificationRequired: true,
+            mode: "auto",
         }, sessionState);
         return [
             result.stdout,
@@ -86,10 +87,21 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
         const verificationRequired = dependencies.isVerificationRequired(resolvedOptions, sessionState);
         const finalResponse = dependencies.createFinalResponseGate(resolvedOptions, sessionState);
         const seniorFullstackActive = dependencies.getSeniorFullstackActive(context.sessionID);
+        const sessionMode = dependencies.getSessionMode(context.sessionID);
+        const effectiveMode = sessionMode ?? resolvedOptions.mode;
+        const seniorFullstackIntent = seniorFullstackActive ? "implementation" : "none";
+        const seniorFullstackReason = effectiveMode === "core"
+            ? "core mode forced"
+            : effectiveMode === "senior"
+                ? "senior mode forced"
+                : seniorFullstackActive
+                    ? "implementation intent detected"
+                    : "auto mode with no implementation intent";
         return JSON.stringify({
             enabled: resolvedOptions.enabled,
             strictResponses: resolvedOptions.strictResponses,
             qualityLifecycle: resolvedOptions.qualityLifecycle,
+            mode: effectiveMode,
             verificationRequired,
             changedFiles: sessionState.changedFiles,
             lastCheck: {
@@ -100,6 +112,11 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
             },
             seniorFullstack: {
                 active: seniorFullstackActive,
+            },
+            seniorEngineer: {
+                active: seniorFullstackActive,
+                reason: seniorFullstackReason,
+                intent: seniorFullstackIntent,
             },
             finalResponse,
         }, null, 2);

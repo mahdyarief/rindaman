@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { tool } from "@opencode-ai/plugin"
 
-import type { RindamanResolvedOptions } from "./options.js"
+import type { RindamanMode, RindamanResolvedOptions } from "./options.js"
 import type { FinalResponseGate } from "./final-response-gate.js"
 import type { SessionQualityState } from "./session-state.js"
 
@@ -38,6 +38,7 @@ type ToolDependencies = {
     sessionState: SessionQualityState,
   ) => boolean
   getSeniorFullstackActive: (sessionID: string) => boolean
+  getSessionMode: (sessionID: string) => RindamanMode | undefined
 }
 
 export const createRindamanCheckTool = (dependencies: ToolDependencies) =>
@@ -94,6 +95,7 @@ export const createRindamanCheckTool = (dependencies: ToolDependencies) =>
           strictResponses: true,
           qualityLifecycle: true,
           verificationRequired: true,
+          mode: "auto",
         },
         sessionState,
       )
@@ -138,12 +140,24 @@ export const createRindamanStatusTool = (
       const seniorFullstackActive = dependencies.getSeniorFullstackActive(
         context.sessionID,
       )
+      const sessionMode = dependencies.getSessionMode(context.sessionID)
+      const effectiveMode = sessionMode ?? resolvedOptions.mode
+      const seniorFullstackIntent = seniorFullstackActive ? "implementation" : "none"
+      const seniorFullstackReason =
+        effectiveMode === "core"
+          ? "core mode forced"
+          : effectiveMode === "senior"
+            ? "senior mode forced"
+            : seniorFullstackActive
+              ? "implementation intent detected"
+              : "auto mode with no implementation intent"
 
       return JSON.stringify(
         {
           enabled: resolvedOptions.enabled,
           strictResponses: resolvedOptions.strictResponses,
           qualityLifecycle: resolvedOptions.qualityLifecycle,
+          mode: effectiveMode,
           verificationRequired,
           changedFiles: sessionState.changedFiles,
           lastCheck: {
@@ -154,6 +168,11 @@ export const createRindamanStatusTool = (
           },
           seniorFullstack: {
             active: seniorFullstackActive,
+          },
+          seniorEngineer: {
+            active: seniorFullstackActive,
+            reason: seniorFullstackReason,
+            intent: seniorFullstackIntent,
           },
           finalResponse,
         },

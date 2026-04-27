@@ -1,10 +1,13 @@
 import type { PluginOptions } from "@opencode-ai/plugin"
 
+export type RindamanMode = "core" | "senior" | "auto"
+
 export type RindamanResolvedOptions = {
   enabled: boolean
   strictResponses: boolean
   qualityLifecycle: boolean
   verificationRequired: boolean
+  mode: RindamanMode
 }
 
 const getBooleanOption = (
@@ -17,6 +20,14 @@ const getBooleanOption = (
   return typeof configuredValue === "boolean" ? configuredValue : defaultValue
 }
 
+const getModeOption = (options: PluginOptions | undefined): RindamanMode => {
+  const configuredValue = options?.mode
+
+  return configuredValue === "core" || configuredValue === "senior"
+    ? configuredValue
+    : "auto"
+}
+
 export const resolvePluginOptions = (
   options: PluginOptions | undefined,
 ): RindamanResolvedOptions => ({
@@ -24,4 +35,5 @@ export const resolvePluginOptions = (
   strictResponses: getBooleanOption(options, "strictResponses", true),
   qualityLifecycle: getBooleanOption(options, "qualityLifecycle", true),
   verificationRequired: getBooleanOption(options, "verificationRequired", true),
+  mode: getModeOption(options),
 })
