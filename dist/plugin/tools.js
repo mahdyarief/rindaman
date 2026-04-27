@@ -16,6 +16,36 @@ const readChangedFiles = (directory) => {
         .map((line) => line.slice(3).trim())
         .filter(Boolean);
 };
+const getCheckFreshness = (sessionState) => {
+    if (!sessionState.lastCheckStatus) {
+        return "not_run";
+    }
+    return sessionState.dirtySinceCheck ? "stale" : "fresh";
+};
+const getNextAction = (verificationRequired, checkFreshness, finalResponse) => {
+    if (verificationRequired && checkFreshness === "not_run") {
+        return {
+            command: "rindaman_check",
+            reason: "verification has not been run for this session",
+        };
+    }
+    if (verificationRequired && checkFreshness === "stale") {
+        return {
+            command: "rindaman_check",
+            reason: "files changed after the last verification",
+        };
+    }
+    if (!finalResponse.allowed) {
+        return {
+            command: "rindaman_check",
+            reason: finalResponse.reason,
+        };
+    }
+    return {
+        command: null,
+        reason: "no action required",
+    };
+};
 export const createRindamanCheckTool = (dependencies) => tool({
     description: "Run Rindaman quality verification from the current project directory and record check status for this OpenCode session.",
     args: {
@@ -50,6 +80,7 @@ export const createRindamanCheckTool = (dependencies) => tool({
         sessionState.lastCheckAt = new Date().toISOString();
         sessionState.lastCheckCommand = ["node", ...commandArgs].join(" ");
         sessionState.lastCheckExitCode = result.status;
+        sessionState.dirtySinceCheck = false;
         sessionState.lastCheckStatus = result.error
             ? "error"
             : result.status === 0
@@ -62,6 +93,8 @@ export const createRindamanCheckTool = (dependencies) => tool({
             verificationRequired: true,
             mode: "auto",
         }, sessionState);
+        const checkFreshness = getCheckFreshness(sessionState);
+        const nextAction = getNextAction(true, checkFreshness, finalResponse);
         return [
             result.stdout,
             result.stderr,
@@ -70,6 +103,9 @@ export const createRindamanCheckTool = (dependencies) => tool({
             "Exit code: " + String(result.status),
             "Final response allowed: " + String(finalResponse.allowed),
             "Final response reason: " + finalResponse.reason,
+            "Check freshness: " + checkFreshness,
+            "Next action: " + (nextAction.command ?? "none"),
+            "Next action reason: " + nextAction.reason,
         ]
             .filter(Boolean)
             .join("\n");
@@ -86,6 +122,8 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
         }
         const verificationRequired = dependencies.isVerificationRequired(resolvedOptions, sessionState);
         const finalResponse = dependencies.createFinalResponseGate(resolvedOptions, sessionState);
+        const checkFreshness = getCheckFreshness(sessionState);
+        const nextAction = getNextAction(verificationRequired, checkFreshness, finalResponse);
         const seniorFullstackActive = dependencies.getSeniorFullstackActive(context.sessionID);
         const secondaryLayer = dependencies.getSecondaryLayer(context.sessionID);
         const sessionMode = dependencies.getSessionMode(context.sessionID);
@@ -104,6 +142,8 @@ export const createRindamanStatusTool = (resolvedOptions, dependencies) => tool(
             mode: effectiveMode,
             secondaryLayer,
             verificationRequired,
+            checkFreshness,
+            nextAction,
             changedFiles: sessionState.changedFiles,
             lastCheck: {
                 status: sessionState.lastCheckStatus ?? "not_run",

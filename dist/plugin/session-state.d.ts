@@ -5,7 +5,9 @@ export type SessionQualityState = {
     lastCheckStatus?: string;
     lastCheckCommand?: string;
     lastCheckExitCode?: number | null;
+    dirtySinceCheck?: boolean;
 };
+export type CheckFreshness = "not_run" | "fresh" | "stale";
 export declare const sessionEnabledStates: Map<string, boolean>;
 export declare const sessionSeniorFullstackStates: Map<string, boolean>;
 export declare const getSessionState: (sessionID: string) => SessionQualityState;

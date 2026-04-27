@@ -6,7 +6,10 @@ export type SessionQualityState = {
   lastCheckStatus?: string
   lastCheckCommand?: string
   lastCheckExitCode?: number | null
+  dirtySinceCheck?: boolean
 }
+
+export type CheckFreshness = "not_run" | "fresh" | "stale"
 
 const sessionStates = new Map<string, SessionQualityState>()
 export const sessionEnabledStates = new Map<string, boolean>()

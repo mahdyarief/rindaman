@@ -7,7 +7,7 @@ import { tool } from "@opencode-ai/plugin"
 import type { RindamanMode, RindamanResolvedOptions } from "./options.js"
 import type { SeniorEngineerActivation } from "./intent.js"
 import type { FinalResponseGate } from "./final-response-gate.js"
-import type { SessionQualityState } from "./session-state.js"
+import type { CheckFreshness, SessionQualityState } from "./session-state.js"
 
 const getCliPath = () =>
   resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "bin", "rindaman.cjs")
@@ -42,6 +42,51 @@ type ToolDependencies = {
   getSessionMode: (sessionID: string) => RindamanMode | undefined
   getSeniorEngineerMetadata: (sessionID: string) => SeniorEngineerActivation | undefined
   getSecondaryLayer: (sessionID: string) => "none" | "senior" | "reviewer"
+}
+
+type NextAction = {
+  command: string | null
+  reason: string
+}
+
+const getCheckFreshness = (sessionState: SessionQualityState): CheckFreshness => {
+  if (!sessionState.lastCheckStatus) {
+    return "not_run"
+  }
+
+  return sessionState.dirtySinceCheck ? "stale" : "fresh"
+}
+
+const getNextAction = (
+  verificationRequired: boolean,
+  checkFreshness: CheckFreshness,
+  finalResponse: FinalResponseGate,
+): NextAction => {
+  if (verificationRequired && checkFreshness === "not_run") {
+    return {
+      command: "rindaman_check",
+      reason: "verification has not been run for this session",
+    }
+  }
+
+  if (verificationRequired && checkFreshness === "stale") {
+    return {
+      command: "rindaman_check",
+      reason: "files changed after the last verification",
+    }
+  }
+
+  if (!finalResponse.allowed) {
+    return {
+      command: "rindaman_check",
+      reason: finalResponse.reason,
+    }
+  }
+
+  return {
+    command: null,
+    reason: "no action required",
+  }
 }
 
 export const createRindamanCheckTool = (dependencies: ToolDependencies) =>
@@ -87,6 +132,7 @@ export const createRindamanCheckTool = (dependencies: ToolDependencies) =>
       sessionState.lastCheckAt = new Date().toISOString()
       sessionState.lastCheckCommand = ["node", ...commandArgs].join(" ")
       sessionState.lastCheckExitCode = result.status
+      sessionState.dirtySinceCheck = false
       sessionState.lastCheckStatus = result.error
         ? "error"
         : result.status === 0
@@ -102,6 +148,12 @@ export const createRindamanCheckTool = (dependencies: ToolDependencies) =>
         },
         sessionState,
       )
+      const checkFreshness = getCheckFreshness(sessionState)
+      const nextAction = getNextAction(
+        true,
+        checkFreshness,
+        finalResponse,
+      )
 
       return [
         result.stdout,
@@ -111,6 +163,9 @@ export const createRindamanCheckTool = (dependencies: ToolDependencies) =>
         "Exit code: " + String(result.status),
         "Final response allowed: " + String(finalResponse.allowed),
         "Final response reason: " + finalResponse.reason,
+        "Check freshness: " + checkFreshness,
+        "Next action: " + (nextAction.command ?? "none"),
+        "Next action reason: " + nextAction.reason,
       ]
         .filter(Boolean)
         .join("\n")
@@ -140,6 +195,12 @@ export const createRindamanStatusTool = (
         resolvedOptions,
         sessionState,
       )
+      const checkFreshness = getCheckFreshness(sessionState)
+      const nextAction = getNextAction(
+        verificationRequired,
+        checkFreshness,
+        finalResponse,
+      )
       const seniorFullstackActive = dependencies.getSeniorFullstackActive(
         context.sessionID,
       )
@@ -162,6 +223,8 @@ export const createRindamanStatusTool = (
           mode: effectiveMode,
           secondaryLayer,
           verificationRequired,
+          checkFreshness,
+          nextAction,
           changedFiles: sessionState.changedFiles,
           lastCheck: {
             status: sessionState.lastCheckStatus ?? "not_run",

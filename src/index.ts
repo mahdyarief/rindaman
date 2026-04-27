@@ -188,6 +188,7 @@ export const server: Plugin = async (_input, options) => {
         input.tool.includes("terminal")
       ) {
         sessionState.lastCheckStatus = "stale"
+        sessionState.dirtySinceCheck = true
       }
 
       if (typeof output.output === "string") {
@@ -201,6 +202,7 @@ export const server: Plugin = async (_input, options) => {
           sessionState.changedFiles = Array.from(
             new Set([...sessionState.changedFiles, ...changedFiles]),
           )
+          sessionState.dirtySinceCheck = true
         }
       }
     },

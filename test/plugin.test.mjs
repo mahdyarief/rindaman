@@ -348,6 +348,8 @@ test("rindaman_status exposes final response gate metadata", async () => {
   assert.equal(status.lastCheck.status, "not_run");
   assert.equal(status.lastCheck.command, null);
   assert.equal(status.lastCheck.checkedAt, null);
+  assert.equal(status.checkFreshness, "not_run");
+  assert.equal(status.nextAction.command, "rindaman_check");
   assert.equal(typeof status.mode, "string");
   assert.equal(typeof status.seniorEngineer.active, "boolean");
   assert.equal(typeof status.finalResponse.allowed, "boolean");
@@ -435,6 +437,8 @@ test("dirty session requires verification before final response", async () => {
   const status = await readStatus(hooks, context);
 
   assert.equal(status.verificationRequired, true);
+  assert.equal(status.checkFreshness, "stale");
+  assert.equal(status.nextAction.command, "rindaman_check");
   assert.equal(status.finalResponse.allowed, false);
   assert.equal(status.finalResponse.reason, "verification pending");
   assert.ok(status.changedFiles.length > 0);
@@ -474,8 +478,37 @@ test("passing rindaman_check allows final response", async () => {
   const status = await readStatus(hooks, context);
 
   assert.equal(status.lastCheck.status, "passed");
+  assert.equal(status.checkFreshness, "fresh");
   assert.equal(status.finalResponse.allowed, true);
   assert.equal(status.finalResponse.reason, "verification passed");
+});
+
+test("untouched session reports not_run freshness", async () => {
+  const hooks = await server();
+  const context = createToolContext();
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.checkFreshness, "not_run");
+  assert.equal(status.nextAction.command, "rindaman_check");
+});
+
+test("edit after check reports stale status and next action", async () => {
+  const hooks = await server();
+  const context = createToolContext();
+
+  await hooks.tool.rindaman_check.execute(
+    { mode: "doctor", json: true, strict: false, report: false },
+    context,
+  );
+  await hooks["tool.execute.after"](
+    { sessionID: context.sessionID, tool: "edit" },
+    { output: "src/example.ts" },
+  );
+
+  const status = await readStatus(hooks, context);
+
+  assert.equal(status.checkFreshness, "stale");
+  assert.equal(status.nextAction.command, "rindaman_check");
 });
 
 test("quality lifecycle disabled allows final response", async () => {

@@ -124,12 +124,17 @@ Rindaman now includes first-class OpenCode tools:
 - `seniorEngineer.intent`
 - `seniorEngineer.intentSource`
 - `seniorEngineer.matchedSignals`
+- `checkFreshness`
+- `nextAction.command`
+- `nextAction.reason`
 - `finalResponse.allowed`
 - `finalResponse.reason`
 
 Stable vs evolving note:
 
 `mode`, `secondaryLayer`, and the presence of `seniorEngineer`/`reviewer` are stable product concepts. `matchedSignals` and exact intent heuristics are experimental and may evolve.
+
+`rindaman_status` is intended to answer both “what state is the session in?” and “what should I do next?”
 
 Example status shape:
 

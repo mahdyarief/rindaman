@@ -121,6 +121,7 @@ export const server = async (_input, options) => {
                 input.tool.includes("file") ||
                 input.tool.includes("terminal")) {
                 sessionState.lastCheckStatus = "stale";
+                sessionState.dirtySinceCheck = true;
             }
             if (typeof output.output === "string") {
                 const changedFiles = output.output
@@ -128,6 +129,7 @@ export const server = async (_input, options) => {
                     .filter((line) => /\.(ts|tsx|js|jsx|json|md|css|scss|py|rs|go)$/.test(line.trim()));
                 if (changedFiles.length > 0) {
                     sessionState.changedFiles = Array.from(new Set([...sessionState.changedFiles, ...changedFiles]));
+                    sessionState.dirtySinceCheck = true;
                 }
             }
         },
