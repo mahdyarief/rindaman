@@ -1,305 +1,26 @@
-import { spawnSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { tool } from "@opencode-ai/plugin";
-import { RINDAMAN_RULE, RINDAMAN_RULE_MARKER, RINDAMAN_SENIOR_FULLSTACK_RULE, RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER, } from "./rindaman-rule.js";
-const RINDAMAN_ON_COMMANDS = new Set([
-    "/rindaman on",
-    "rindaman on",
-    "/quality on",
-    "quality on",
-    "/strict on",
-    "strict mode",
-    "be strict",
-]);
-const RINDAMAN_OFF_COMMANDS = new Set([
-    "/rindaman off",
-    "rindaman off",
-    "/quality off",
-    "quality off",
-    "/strict off",
-    "normal mode",
-    "stop strict",
-]);
-const IMPLEMENTATION_INTENT_KEYWORDS = [
-    "architecture",
-    "api",
-    "frontend",
-    "backend",
-    "auth",
-    "database",
-    "model",
-    "schema",
-    "contract",
-    "session",
-    "feature architecture",
-    "data flow",
-];
-const GOVERNANCE_ONLY_KEYWORDS = [
-    "review",
-    "status",
-    "release",
-    "version",
-    "push",
-    "commit",
-    "verify",
-    "test",
-    "doctor",
-];
-const getBooleanOption = (options, key, defaultValue) => {
-    const configuredValue = options?.[key];
-    return typeof configuredValue === "boolean" ? configuredValue : defaultValue;
-};
-const resolvePluginOptions = (options) => ({
-    enabled: getBooleanOption(options, "enabled", true),
-    strictResponses: getBooleanOption(options, "strictResponses", true),
-    qualityLifecycle: getBooleanOption(options, "qualityLifecycle", true),
-    verificationRequired: getBooleanOption(options, "verificationRequired", true),
-});
-const sessionStates = new Map();
-const sessionEnabledStates = new Map();
-const sessionSeniorFullstackStates = new Map();
-const getSessionState = (sessionID) => {
-    const existingState = sessionStates.get(sessionID);
-    if (existingState) {
-        return existingState;
-    }
-    const initialState = { changedFiles: [] };
-    sessionStates.set(sessionID, initialState);
-    return initialState;
-};
-const isVerificationRequired = (resolvedOptions, sessionState) => resolvedOptions.verificationRequired && sessionState.changedFiles.length > 0;
-const createFinalResponseGate = (resolvedOptions, sessionState) => {
-    if (!resolvedOptions.enabled) {
-        return { allowed: true, reason: "rindaman disabled" };
-    }
-    if (!resolvedOptions.qualityLifecycle) {
-        return { allowed: true, reason: "quality lifecycle disabled" };
-    }
-    if (!isVerificationRequired(resolvedOptions, sessionState)) {
-        return { allowed: true, reason: "verification not required" };
-    }
-    if (sessionState.lastCheckStatus === "passed") {
-        return { allowed: true, reason: "verification passed" };
-    }
-    if (sessionState.lastCheckStatus === "failed") {
-        return { allowed: false, reason: "verification failed" };
-    }
-    if (sessionState.lastCheckStatus === "error") {
-        return { allowed: false, reason: "verification errored" };
-    }
-    return { allowed: false, reason: "verification pending" };
-};
-const isRindamanRuleMessage = (message) => message.parts.some((part) => part.type === "text" &&
-    typeof part.text === "string" &&
-    part.text.includes(RINDAMAN_RULE_MARKER));
-const isSeniorFullstackRuleMessage = (message) => message.parts.some((part) => part.type === "text" &&
-    typeof part.text === "string" &&
-    part.text.includes(RINDAMAN_SENIOR_FULLSTACK_RULE_MARKER));
-const createRindamanRuleMessage = () => ({
-    info: {
-        id: "rindaman-global-rule",
-        role: "system",
-    },
-    parts: [
-        {
-            type: "text",
-            text: RINDAMAN_RULE,
-        },
-    ],
-});
-const createSeniorFullstackRuleMessage = () => ({
-    info: {
-        id: "rindaman-senior-fullstack-rule",
-        role: "system",
-    },
-    parts: [
-        {
-            type: "text",
-            text: RINDAMAN_SENIOR_FULLSTACK_RULE,
-        },
-    ],
-});
-const getMessageRole = (message) => typeof message.info.role === "string" ? message.info.role : undefined;
-const getMessageText = (message) => message.parts
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text ?? "")
-    .join("\n");
-const isImplementationOrArchitectureRequest = (text) => {
-    const normalizedText = text.toLowerCase();
-    const hasImplementationKeyword = IMPLEMENTATION_INTENT_KEYWORDS.some((keyword) => normalizedText.includes(keyword));
-    const hasGovernanceOnlyKeyword = GOVERNANCE_ONLY_KEYWORDS.some((keyword) => normalizedText.includes(keyword));
-    return hasImplementationKeyword && !hasGovernanceOnlyKeyword;
-};
-const normalizeCommandText = (text) => text
-    .trim()
-    .toLowerCase()
-    .replace(/^[\s"'`([{]+|[\s"'`)\]}!,.?:;]+$/g, "");
-const getRindamanToggle = (text) => {
-    const normalizedFullText = normalizeCommandText(text);
-    if (RINDAMAN_ON_COMMANDS.has(normalizedFullText)) {
-        return true;
-    }
-    if (RINDAMAN_OFF_COMMANDS.has(normalizedFullText)) {
-        return false;
-    }
-    const lines = text
-        .split(/\r?\n/)
-        .map((line) => normalizeCommandText(line))
-        .filter(Boolean);
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-        const line = lines[index];
-        if (RINDAMAN_ON_COMMANDS.has(line)) {
-            return true;
-        }
-        if (RINDAMAN_OFF_COMMANDS.has(line)) {
-            return false;
-        }
-    }
-    return undefined;
-};
-const getRindamanEnabled = (messages) => {
-    let enabled = true;
-    for (const message of messages) {
-        if (getMessageRole(message) !== "user") {
-            continue;
-        }
-        const text = getMessageText(message);
-        if (!text) {
-            continue;
-        }
-        const toggle = getRindamanToggle(text);
-        if (typeof toggle === "boolean") {
-            enabled = toggle;
-        }
-    }
-    return enabled;
-};
-const getSeniorFullstackEnabled = (messages) => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (getMessageRole(message) !== "user") {
-            continue;
-        }
-        const text = getMessageText(message);
-        if (!text) {
-            continue;
-        }
-        if (isImplementationOrArchitectureRequest(text)) {
-            return true;
-        }
-    }
-    return false;
-};
-const getCliPath = () => resolve(dirname(fileURLToPath(import.meta.url)), "..", "bin", "rindaman.cjs");
-const readChangedFiles = (directory) => {
-    const gitStatus = spawnSync("git", ["status", "--porcelain"], {
-        cwd: directory,
-        encoding: "utf8",
-    });
-    if (gitStatus.status !== 0 || !gitStatus.stdout) {
-        return [];
-    }
-    return gitStatus.stdout
-        .split(/\r?\n/)
-        .map((line) => line.slice(3).trim())
-        .filter(Boolean);
-};
-const createRindamanCheckTool = () => tool({
-    description: "Run Rindaman quality verification from the current project directory and record check status for this OpenCode session.",
-    args: {
-        mode: tool.schema.enum(["check", "audit", "doctor"]).default("check"),
-        json: tool.schema.boolean().default(false),
-        strict: tool.schema.boolean().default(false),
-        report: tool.schema.boolean().default(false),
-    },
-    async execute(args, context) {
-        const commandArgs = [getCliPath()];
-        if (args.mode !== "check") {
-            commandArgs.push(args.mode);
-        }
-        if (args.json) {
-            commandArgs.push("--json");
-        }
-        if (args.strict) {
-            commandArgs.push("--strict");
-        }
-        if (args.report) {
-            commandArgs.push("--report");
-        }
-        const result = spawnSync("node", commandArgs, {
-            cwd: context.directory,
-            encoding: "utf8",
-        });
-        const sessionState = getSessionState(context.sessionID);
-        const changedFiles = readChangedFiles(context.directory);
-        if (changedFiles.length > 0) {
-            sessionState.changedFiles = changedFiles;
-        }
-        sessionState.lastCheckAt = new Date().toISOString();
-        sessionState.lastCheckCommand = ["node", ...commandArgs].join(" ");
-        sessionState.lastCheckExitCode = result.status;
-        sessionState.lastCheckStatus = result.error
-            ? "error"
-            : result.status === 0
-                ? "passed"
-                : "failed";
-        const finalResponse = createFinalResponseGate({
-            enabled: true,
-            strictResponses: true,
-            qualityLifecycle: true,
-            verificationRequired: true,
-        }, sessionState);
-        return [
-            result.stdout,
-            result.stderr,
-            "",
-            "Rindaman status: " + sessionState.lastCheckStatus,
-            "Exit code: " + String(result.status),
-            "Final response allowed: " + String(finalResponse.allowed),
-            "Final response reason: " + finalResponse.reason,
-        ]
-            .filter(Boolean)
-            .join("\n");
-    },
-});
-const createRindamanStatusTool = (resolvedOptions) => tool({
-    description: "Report Rindaman session state, changed files, and the last quality check result.",
-    args: {},
-    async execute(_args, context) {
-        const sessionState = getSessionState(context.sessionID);
-        const changedFiles = readChangedFiles(context.directory);
-        if (changedFiles.length > 0) {
-            sessionState.changedFiles = changedFiles;
-        }
-        const verificationRequired = isVerificationRequired(resolvedOptions, sessionState);
-        const finalResponse = createFinalResponseGate(resolvedOptions, sessionState);
-        const seniorFullstackActive = sessionSeniorFullstackStates.get(context.sessionID) ?? false;
-        return JSON.stringify({
-            enabled: resolvedOptions.enabled,
-            strictResponses: resolvedOptions.strictResponses,
-            qualityLifecycle: resolvedOptions.qualityLifecycle,
-            verificationRequired,
-            changedFiles: sessionState.changedFiles,
-            lastCheck: {
-                status: sessionState.lastCheckStatus ?? "not_run",
-                command: sessionState.lastCheckCommand ?? null,
-                checkedAt: sessionState.lastCheckAt ?? null,
-                exitCode: sessionState.lastCheckExitCode ?? null,
-            },
-            seniorFullstack: {
-                active: seniorFullstackActive,
-            },
-            finalResponse,
-        }, null, 2);
-    },
-});
+import { createFinalResponseGate, isVerificationRequired } from "./plugin/final-response-gate.js";
+import { getSeniorFullstackEnabled } from "./plugin/intent.js";
+import { resolvePluginOptions } from "./plugin/options.js";
+import { createRindamanRuleMessage, createSeniorFullstackRuleMessage, getMessageRole, getMessageText, isRindamanRuleMessage, isSeniorFullstackRuleMessage, } from "./plugin/rule-messages.js";
+import { getSessionState, sessionEnabledStates, sessionSeniorFullstackStates, } from "./plugin/session-state.js";
+import { createRindamanCheckTool, createRindamanStatusTool } from "./plugin/tools.js";
+import { getRindamanEnabled, getRindamanToggle } from "./plugin/toggles.js";
 export const server = async (_input, options) => {
     const resolvedOptions = resolvePluginOptions(options);
     return {
         tool: {
-            rindaman_check: createRindamanCheckTool(),
-            rindaman_status: createRindamanStatusTool(resolvedOptions),
+            rindaman_check: createRindamanCheckTool({
+                getSessionState,
+                createFinalResponseGate,
+                isVerificationRequired,
+                getSeniorFullstackActive: (sessionID) => sessionSeniorFullstackStates.get(sessionID) ?? false,
+            }),
+            rindaman_status: createRindamanStatusTool(resolvedOptions, {
+                getSessionState,
+                createFinalResponseGate,
+                isVerificationRequired,
+                getSeniorFullstackActive: (sessionID) => sessionSeniorFullstackStates.get(sessionID) ?? false,
+            }),
         },
         "chat.message": async (input, output) => {
             const messageText = output.parts
@@ -312,10 +33,12 @@ export const server = async (_input, options) => {
             }
         },
         "experimental.chat.system.transform": async (input, output) => {
-            const sessionEnabled = input.sessionID ? sessionEnabledStates.get(input.sessionID) ?? true : true;
+            const sessionEnabled = input.sessionID
+                ? sessionEnabledStates.get(input.sessionID) ?? true
+                : true;
             const enabled = resolvedOptions.enabled && sessionEnabled;
-            if (enabled && !output.system.includes(RINDAMAN_RULE)) {
-                output.system.push(RINDAMAN_RULE);
+            if (enabled && !output.system.includes(createRindamanRuleMessage().parts[0].text ?? "")) {
+                output.system.push(createRindamanRuleMessage().parts[0].text ?? "");
             }
         },
         "experimental.chat.messages.transform": async (_input, output) => {
@@ -323,9 +46,9 @@ export const server = async (_input, options) => {
             if (!Array.isArray(transformOutput.messages)) {
                 return;
             }
-            const messagesWithoutRindamanRule = transformOutput.messages.filter((message) => !isRindamanRuleMessage(message) && !isSeniorFullstackRuleMessage(message));
-            const enabled = resolvedOptions.enabled && getRindamanEnabled(messagesWithoutRindamanRule);
-            const seniorFullstackEnabled = enabled && getSeniorFullstackEnabled(messagesWithoutRindamanRule);
+            const messagesWithoutRindamanRules = transformOutput.messages.filter((message) => !isRindamanRuleMessage(message) && !isSeniorFullstackRuleMessage(message));
+            const enabled = resolvedOptions.enabled && getRindamanEnabled(messagesWithoutRindamanRules, getMessageRole, getMessageText);
+            const seniorFullstackEnabled = enabled && getSeniorFullstackEnabled(messagesWithoutRindamanRules, getMessageRole, getMessageText);
             const transformSessionID = typeof _input.sessionID === "string"
                 ? _input.sessionID
                 : undefined;
@@ -336,13 +59,15 @@ export const server = async (_input, options) => {
                 ? [
                     createRindamanRuleMessage(),
                     ...(seniorFullstackEnabled ? [createSeniorFullstackRuleMessage()] : []),
-                    ...messagesWithoutRindamanRule,
+                    ...messagesWithoutRindamanRules,
                 ]
-                : messagesWithoutRindamanRule;
+                : messagesWithoutRindamanRules;
         },
         "tool.execute.after": async (input, output) => {
             const sessionState = getSessionState(input.sessionID);
-            if (input.tool === "edit" || input.tool.includes("file") || input.tool.includes("terminal")) {
+            if (input.tool === "edit" ||
+                input.tool.includes("file") ||
+                input.tool.includes("terminal")) {
                 sessionState.lastCheckStatus = "stale";
             }
             if (typeof output.output === "string") {
