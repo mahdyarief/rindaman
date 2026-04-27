@@ -41,10 +41,14 @@ const monorepoFixtureDirectory = resolve(
   "monorepo-project",
 );
 
-function runCli(args, cwd) {
+function runCli(args, cwd, env = {}) {
   return spawnSync("node", [cliPath, ...args], {
     cwd,
     encoding: "utf8",
+    env: {
+      ...process.env,
+      ...env,
+    },
   });
 }
 
@@ -83,6 +87,76 @@ function createTemporaryGitBoundary(directoryName) {
   mkdirSync(resolve(temporaryDirectory, ".git"), { recursive: true });
 
   return temporaryDirectory;
+}
+
+function writeExecutable(filePath, contents) {
+  writeFileSync(filePath, contents);
+  chmodSync(filePath, 0o755);
+}
+
+function ensureFormatterFailureFixtureBinary() {
+  const binaryDirectory = resolve(
+    formatterFailureFixtureDirectory,
+    "node_modules",
+    ".bin",
+  );
+
+  mkdirSync(binaryDirectory, { recursive: true });
+  writeExecutable(
+    resolve(binaryDirectory, process.platform === "win32" ? "prettier.cmd" : "prettier"),
+    process.platform === "win32"
+      ? ["@echo off", "exit /b 1", ""].join("\r\n")
+      : ["#!/bin/sh", "exit 1", ""].join("\n"),
+  );
+}
+
+function createAuditCommandEnv(fixtureDirectory, vulnerabilities) {
+  const binDirectory = resolve(fixtureDirectory, ".test-bin");
+  const auditJson = JSON.stringify({
+    metadata: {
+      vulnerabilities: {
+        info: 0,
+        low: 0,
+        ...vulnerabilities,
+      },
+    },
+  });
+
+  mkdirSync(binDirectory, { recursive: true });
+
+  if (process.platform === "win32") {
+    writeExecutable(
+      resolve(binDirectory, "npm.cmd"),
+      [
+        "@echo off",
+        'if "%1"=="audit" (',
+        '  if "%2"=="--json" (',
+        `    <nul set /p=${auditJson}`,
+        "    exit /b 1",
+        "  )",
+        ")",
+        "exit /b 0",
+        "",
+      ].join("\r\n"),
+    );
+  } else {
+    writeExecutable(
+      resolve(binDirectory, "npm"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "audit" ] && [ "$2" = "--json" ]; then',
+        `  printf '%s' '${auditJson}'`,
+        "  exit 1",
+        "fi",
+        "exit 0",
+        "",
+      ].join("\n"),
+    );
+  }
+
+  return {
+    PATH: `${binDirectory}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+  };
 }
 
 test("CLI help exits successfully", () => {
@@ -156,15 +230,7 @@ test("CLI check reports typecheck script failures", () => {
 });
 
 test("CLI check reports formatter failures", () => {
-  chmodSync(
-    resolve(
-      formatterFailureFixtureDirectory,
-      "node_modules",
-      ".bin",
-      "prettier",
-    ),
-    0o755,
-  );
+  ensureFormatterFailureFixtureBinary();
   const result = runCli(
     ["check", "--json", "--all"],
     formatterFailureFixtureDirectory,
@@ -435,15 +501,7 @@ test("CLI baseline writes workspace-local baselines", () => {
 });
 
 test("CLI audit reports unknown debt without failing", () => {
-  chmodSync(
-    resolve(
-      formatterFailureFixtureDirectory,
-      "node_modules",
-      ".bin",
-      "prettier",
-    ),
-    0o755,
-  );
+  ensureFormatterFailureFixtureBinary();
   const result = runCli(
     ["audit", "--json", "--all"],
     formatterFailureFixtureDirectory,
@@ -524,21 +582,15 @@ test("CLI security check summarizes severity counts", () => {
     },
   );
   writeFileSync(resolve(fixtureDirectory, "package-lock.json"), "{}\n");
-  writeFileSync(
-    resolve(fixtureDirectory, "npm.cmd"),
-    [
-      "@echo off",
-      'if "%1"=="audit" (',
-      '  if "%2"=="--json" (',
-      '    <nul set /p={"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":2,"high":1,"critical":0}}}',
-      "    exit /b 1",
-      "  )",
-      ")",
-      "exit /b 0",
-      "",
-    ].join("\r\n"),
+  const result = runCli(
+    ["check", "--json", "--all"],
+    fixtureDirectory,
+    createAuditCommandEnv(fixtureDirectory, {
+      moderate: 2,
+      high: 1,
+      critical: 0,
+    }),
   );
-  const result = runCli(["check", "--json", "--all"], fixtureDirectory);
 
   const output = parseJsonOutput(result);
   const securityCheck = findCheck(output, "security");
@@ -567,22 +619,16 @@ test("CLI security check does not block on moderate-only by default", () => {
     },
   );
   writeFileSync(resolve(fixtureDirectory, "package-lock.json"), "{}\n");
-  writeFileSync(
-    resolve(fixtureDirectory, "npm.cmd"),
-    [
-      "@echo off",
-      'if "%1"=="audit" (',
-      '  if "%2"=="--json" (',
-      '    <nul set /p={"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":2,"high":0,"critical":0}}}',
-      "    exit /b 1",
-      "  )",
-      ")",
-      "exit /b 0",
-      "",
-    ].join("\r\n"),
-  );
 
-  const result = runCli(["check", "--json", "--all"], fixtureDirectory);
+  const result = runCli(
+    ["check", "--json", "--all"],
+    fixtureDirectory,
+    createAuditCommandEnv(fixtureDirectory, {
+      moderate: 2,
+      high: 0,
+      critical: 0,
+    }),
+  );
   const output = parseJsonOutput(result);
 
   assert.equal(result.status, 0);
@@ -610,22 +656,16 @@ test("CLI security config can block on moderate vulnerabilities", () => {
     },
   );
   writeFileSync(resolve(fixtureDirectory, "package-lock.json"), "{}\n");
-  writeFileSync(
-    resolve(fixtureDirectory, "npm.cmd"),
-    [
-      "@echo off",
-      'if "%1"=="audit" (',
-      '  if "%2"=="--json" (',
-      '    <nul set /p={"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":1,"high":0,"critical":0}}}',
-      "    exit /b 1",
-      "  )",
-      ")",
-      "exit /b 0",
-      "",
-    ].join("\r\n"),
-  );
 
-  const result = runCli(["check", "--json", "--all"], fixtureDirectory);
+  const result = runCli(
+    ["check", "--json", "--all"],
+    fixtureDirectory,
+    createAuditCommandEnv(fixtureDirectory, {
+      moderate: 1,
+      high: 0,
+      critical: 0,
+    }),
+  );
 
   assert.equal(result.status, 1);
   const output = parseJsonOutput(result);
